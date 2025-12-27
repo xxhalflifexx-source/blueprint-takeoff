@@ -1,0 +1,39 @@
+# Build directories
+build/
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+!CMakeLists.txt
+
+# Executables
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Qt generated files
+*.moc
+*.ui.h
+*.qrc.depends
+*_autogen/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Project files
+*.takeoff.json
+

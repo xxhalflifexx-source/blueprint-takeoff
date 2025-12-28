@@ -8,16 +8,22 @@
 #include <QLabel>
 #include <QPushButton>
 
-#include "Project.h"
-#include "QuoteCalculator.h"
-#include "ShapesDatabase.h"
+#include "../models/Project.h"
+#include "../models/TakeoffItem.h"
 
 /**
- * @brief Dock widget for quote summary display and export.
+ * @brief Dock widget for quote summary display with weight/cost calculations.
  * 
- * Shows a table grouped by Material Type + Size + Labor Class.
- * Includes rate inputs and totals with CSV export functionality.
- * Supports filtering to current page only.
+ * Shows a table grouped by designation with columns:
+ * - Designation
+ * - Qty (total items)
+ * - Total Length (ft)
+ * - W (lb/ft)
+ * - Total Weight (lb)
+ * - $/lb
+ * - Material Cost ($)
+ * 
+ * Footer shows grand totals and editable $/lb rate.
  */
 class QuoteDock : public QDockWidget
 {
@@ -31,41 +37,28 @@ public:
      * @brief Update the quote summary from project data.
      * @param project The project to calculate from
      */
-    void updateFromProject(const Project& project);
+    void updateFromProject(Project* project);
 
     /**
-     * @brief Update the quote summary from measurements.
-     * @param measurements The measurements to calculate from
-     * @param rates The quote rates to use
-     * @param shapesDb Optional shapes database for weight lookup
+     * @brief Get the current material price per lb.
      */
-    void updateFromMeasurements(const QVector<Measurement>& measurements, 
-                                 const QuoteRates& rates,
-                                 ShapesDatabase* shapesDb = nullptr);
+    double materialPricePerLb() const;
 
     /**
-     * @brief Get the current quote rates from UI.
-     * @return QuoteRates struct
+     * @brief Set the material price per lb.
      */
-    QuoteRates currentRates() const;
-
-    /**
-     * @brief Set the quote rates in UI.
-     * @param rates Rates to display
-     */
-    void setRates(const QuoteRates& rates);
+    void setMaterialPricePerLb(double pricePerLb);
 
     /**
      * @brief Check if "Current Page Only" filter is enabled.
-     * @return true if filtering to current page
      */
     bool isCurrentPageOnly() const;
 
 signals:
     /**
-     * @brief Emitted when rate values are changed by user.
+     * @brief Emitted when material price per lb is changed by user.
      */
-    void ratesChanged(const QuoteRates& rates);
+    void materialPriceChanged(double pricePerLb);
 
     /**
      * @brief Emitted when "Current Page Only" checkbox changes.
@@ -74,13 +67,13 @@ signals:
 
 private slots:
     void onExportCsv();
-    void onRateChanged();
+    void onPriceChanged();
     void onCurrentPageOnlyToggled(bool checked);
 
 private:
     void setupUi();
-    void populateTable(const QuoteSummary& summary);
-    void updateTotals(const QuoteSummary& summary);
+    void populateTable(Project* project, const QString& pageFilter = QString());
+    void updateTotals(double totalWeight, double totalCost, int totalQty);
 
     // Container
     QWidget* m_container;
@@ -91,25 +84,20 @@ private:
     // Filter checkbox
     QCheckBox* m_currentPageOnlyCheck;
 
-    // Rate inputs
-    QDoubleSpinBox* m_materialRateSpin;
-    QDoubleSpinBox* m_laborRateSpin;
-    QDoubleSpinBox* m_markupSpin;
+    // Price input
+    QDoubleSpinBox* m_pricePerLbSpin;
 
     // Totals labels
-    QLabel* m_subtotalLabel;
-    QLabel* m_totalLabel;
-    QLabel* m_weightLabel;
+    QLabel* m_totalWeightLabel;
+    QLabel* m_totalCostLabel;
+    QLabel* m_totalQtyLabel;
 
     // Export button
     QPushButton* m_exportButton;
 
-    // Calculator
-    QuoteCalculator m_calculator;
-
-    // Cached project data for recalculation
-    QVector<Measurement> m_cachedMeasurements;
-    ShapesDatabase* m_shapesDb;
+    // Cached project pointer for recalculation
+    Project* m_cachedProject;
+    QString m_currentPageId;
 };
 
 #endif // QUOTEDOCK_H

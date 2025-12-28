@@ -9,20 +9,19 @@
 #include <QMessageBox>
 #include <QFile>
 #include <QTextStream>
+#include <QMap>
 
 QuoteDock::QuoteDock(QWidget* parent)
     : QDockWidget("Quote Summary", parent)
     , m_container(nullptr)
     , m_table(nullptr)
     , m_currentPageOnlyCheck(nullptr)
-    , m_materialRateSpin(nullptr)
-    , m_laborRateSpin(nullptr)
-    , m_markupSpin(nullptr)
-    , m_subtotalLabel(nullptr)
-    , m_totalLabel(nullptr)
-    , m_weightLabel(nullptr)
+    , m_pricePerLbSpin(nullptr)
+    , m_totalWeightLabel(nullptr)
+    , m_totalCostLabel(nullptr)
+    , m_totalQtyLabel(nullptr)
     , m_exportButton(nullptr)
-    , m_shapesDb(nullptr)
+    , m_cachedProject(nullptr)
 {
     setupUi();
 }
@@ -37,21 +36,37 @@ void QuoteDock::setupUi()
     QVBoxLayout* mainLayout = new QVBoxLayout(m_container);
     mainLayout->setContentsMargins(10, 10, 10, 10);
 
-    // Filter row
-    QHBoxLayout* filterLayout = new QHBoxLayout();
+    // Filter and price row
+    QHBoxLayout* topLayout = new QHBoxLayout();
+    
     m_currentPageOnlyCheck = new QCheckBox("Current Page Only", m_container);
     m_currentPageOnlyCheck->setToolTip("Show quote summary for current page only");
     connect(m_currentPageOnlyCheck, &QCheckBox::toggled, 
             this, &QuoteDock::onCurrentPageOnlyToggled);
-    filterLayout->addWidget(m_currentPageOnlyCheck);
-    filterLayout->addStretch();
-    mainLayout->addLayout(filterLayout);
+    topLayout->addWidget(m_currentPageOnlyCheck);
+    
+    topLayout->addStretch();
+
+    // Material price per lb
+    topLayout->addWidget(new QLabel("Material Rate:"));
+    m_pricePerLbSpin = new QDoubleSpinBox(m_container);
+    m_pricePerLbSpin->setRange(0, 999.99);
+    m_pricePerLbSpin->setDecimals(2);
+    m_pricePerLbSpin->setPrefix("$");
+    m_pricePerLbSpin->setSuffix("/lb");
+    m_pricePerLbSpin->setValue(0.50);
+    m_pricePerLbSpin->setToolTip("Price per pound for material cost calculation");
+    topLayout->addWidget(m_pricePerLbSpin);
+    connect(m_pricePerLbSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &QuoteDock::onPriceChanged);
+
+    mainLayout->addLayout(topLayout);
 
     // Table
     m_table = new QTableWidget(m_container);
     m_table->setColumnCount(7);
     m_table->setHorizontalHeaderLabels({
-        "Material", "Size", "Labor", "Total (in)", "Total (ft)", "Weight (lb)", "Count"
+        "Designation", "Qty", "Total (ft)", "lb/ft", "Weight (lb)", "$/lb", "Cost ($)"
     });
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
@@ -60,67 +75,24 @@ void QuoteDock::setupUi()
     m_table->setAlternatingRowColors(true);
     mainLayout->addWidget(m_table, 1);
 
-    // Rates group
-    QGroupBox* ratesGroup = new QGroupBox("Rates", m_container);
-    QHBoxLayout* ratesLayout = new QHBoxLayout(ratesGroup);
-
-    // Material rate
-    ratesLayout->addWidget(new QLabel("Material $/ft:"));
-    m_materialRateSpin = new QDoubleSpinBox(ratesGroup);
-    m_materialRateSpin->setRange(0, 9999.99);
-    m_materialRateSpin->setDecimals(2);
-    m_materialRateSpin->setPrefix("$");
-    ratesLayout->addWidget(m_materialRateSpin);
-
-    ratesLayout->addSpacing(20);
-
-    // Labor rate
-    ratesLayout->addWidget(new QLabel("Labor $/ft:"));
-    m_laborRateSpin = new QDoubleSpinBox(ratesGroup);
-    m_laborRateSpin->setRange(0, 9999.99);
-    m_laborRateSpin->setDecimals(2);
-    m_laborRateSpin->setPrefix("$");
-    ratesLayout->addWidget(m_laborRateSpin);
-
-    ratesLayout->addSpacing(20);
-
-    // Markup
-    ratesLayout->addWidget(new QLabel("Markup %:"));
-    m_markupSpin = new QDoubleSpinBox(ratesGroup);
-    m_markupSpin->setRange(0, 999.99);
-    m_markupSpin->setDecimals(2);
-    m_markupSpin->setSuffix("%");
-    ratesLayout->addWidget(m_markupSpin);
-
-    ratesLayout->addStretch();
-    mainLayout->addWidget(ratesGroup);
-
-    // Connect rate changes
-    connect(m_materialRateSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, &QuoteDock::onRateChanged);
-    connect(m_laborRateSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, &QuoteDock::onRateChanged);
-    connect(m_markupSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, &QuoteDock::onRateChanged);
-
     // Totals and export row
     QHBoxLayout* bottomLayout = new QHBoxLayout();
 
-    m_subtotalLabel = new QLabel("Subtotal: $0.00", m_container);
-    m_subtotalLabel->setStyleSheet("font-weight: bold;");
-    bottomLayout->addWidget(m_subtotalLabel);
+    m_totalQtyLabel = new QLabel("Items: 0", m_container);
+    m_totalQtyLabel->setStyleSheet("font-weight: bold;");
+    bottomLayout->addWidget(m_totalQtyLabel);
 
-    bottomLayout->addSpacing(30);
+    bottomLayout->addSpacing(20);
 
-    m_totalLabel = new QLabel("Total: $0.00", m_container);
-    m_totalLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
-    bottomLayout->addWidget(m_totalLabel);
+    m_totalWeightLabel = new QLabel("Total Weight: 0 lb", m_container);
+    m_totalWeightLabel->setStyleSheet("font-weight: bold;");
+    bottomLayout->addWidget(m_totalWeightLabel);
 
-    bottomLayout->addSpacing(30);
+    bottomLayout->addSpacing(20);
 
-    m_weightLabel = new QLabel("Weight: 0 lb", m_container);
-    m_weightLabel->setStyleSheet("font-weight: bold;");
-    bottomLayout->addWidget(m_weightLabel);
+    m_totalCostLabel = new QLabel("Total Cost: $0.00", m_container);
+    m_totalCostLabel->setStyleSheet("font-weight: bold; font-size: 14px; color: #2a7;");
+    bottomLayout->addWidget(m_totalCostLabel);
 
     bottomLayout->addStretch();
 
@@ -133,48 +105,34 @@ void QuoteDock::setupUi()
     setWidget(m_container);
 }
 
-void QuoteDock::updateFromProject(const Project& project)
+void QuoteDock::updateFromProject(Project* project)
 {
-    updateFromMeasurements(project.measurements(), project.quoteRates());
+    m_cachedProject = project;
+
+    if (!project || !project->isOpen()) {
+        m_table->setRowCount(0);
+        updateTotals(0, 0, 0);
+        return;
+    }
+
+    QString pageFilter;
+    if (m_currentPageOnlyCheck->isChecked() && !m_currentPageId.isEmpty()) {
+        pageFilter = m_currentPageId;
+    }
+
+    populateTable(project, pageFilter);
 }
 
-void QuoteDock::updateFromMeasurements(const QVector<Measurement>& measurements, 
-                                        const QuoteRates& rates,
-                                        ShapesDatabase* shapesDb)
+double QuoteDock::materialPricePerLb() const
 {
-    m_cachedMeasurements = measurements;
-    m_shapesDb = shapesDb;
-    
-    // Calculate summary
-    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates(), m_shapesDb);
-    
-    populateTable(summary);
-    updateTotals(summary);
+    return m_pricePerLbSpin->value();
 }
 
-QuoteRates QuoteDock::currentRates() const
+void QuoteDock::setMaterialPricePerLb(double pricePerLb)
 {
-    QuoteRates rates;
-    rates.materialRatePerFt = m_materialRateSpin->value();
-    rates.laborRatePerFt = m_laborRateSpin->value();
-    rates.markupPercent = m_markupSpin->value();
-    return rates;
-}
-
-void QuoteDock::setRates(const QuoteRates& rates)
-{
-    // Block signals to prevent triggering ratesChanged
-    m_materialRateSpin->blockSignals(true);
-    m_laborRateSpin->blockSignals(true);
-    m_markupSpin->blockSignals(true);
-
-    m_materialRateSpin->setValue(rates.materialRatePerFt);
-    m_laborRateSpin->setValue(rates.laborRatePerFt);
-    m_markupSpin->setValue(rates.markupPercent);
-
-    m_materialRateSpin->blockSignals(false);
-    m_laborRateSpin->blockSignals(false);
-    m_markupSpin->blockSignals(false);
+    m_pricePerLbSpin->blockSignals(true);
+    m_pricePerLbSpin->setValue(pricePerLb);
+    m_pricePerLbSpin->blockSignals(false);
 }
 
 bool QuoteDock::isCurrentPageOnly() const
@@ -182,29 +140,86 @@ bool QuoteDock::isCurrentPageOnly() const
     return m_currentPageOnlyCheck->isChecked();
 }
 
-void QuoteDock::populateTable(const QuoteSummary& summary)
+void QuoteDock::populateTable(Project* project, const QString& pageFilter)
 {
-    m_table->setRowCount(summary.lineItems.size());
+    // Group items by designation
+    struct DesignationGroup {
+        QString designation;
+        int qty = 0;
+        double totalLengthFt = 0.0;
+        double wLbPerFt = 0.0;
+        double totalWeightLb = 0.0;
+        double totalCost = 0.0;
+    };
 
-    for (int i = 0; i < summary.lineItems.size(); ++i) {
-        const QuoteLineItem& item = summary.lineItems[i];
+    QMap<QString, DesignationGroup> groups;
+    double pricePerLb = m_pricePerLbSpin->value();
 
-        m_table->setItem(i, 0, new QTableWidgetItem(item.materialTypeString()));
-        m_table->setItem(i, 1, new QTableWidgetItem(item.size));
-        m_table->setItem(i, 2, new QTableWidgetItem(item.laborClassString()));
-        m_table->setItem(i, 3, new QTableWidgetItem(QString::number(item.totalLengthInches, 'f', 2)));
-        m_table->setItem(i, 4, new QTableWidgetItem(QString::number(item.totalLengthFeet, 'f', 2)));
-        m_table->setItem(i, 5, new QTableWidgetItem(
-            item.totalWeightLb > 0 ? QString::number(item.totalWeightLb, 'f', 1) : "-"));
-        m_table->setItem(i, 6, new QTableWidgetItem(QString::number(item.itemCount)));
+    const QVector<TakeoffItem>& items = project->takeoffItems();
+    for (const TakeoffItem& item : items) {
+        // Filter by page if specified
+        if (!pageFilter.isEmpty() && item.pageId() != pageFilter) {
+            continue;
+        }
+
+        QString key = item.designation().isEmpty() ? "(Unassigned)" : item.designation();
+        
+        if (!groups.contains(key)) {
+            groups[key].designation = key;
+            // Get weight per foot from shape
+            if (item.shapeId() > 0) {
+                auto shape = project->getShape(item.shapeId());
+                groups[key].wLbPerFt = shape.wLbPerFt;
+            }
+        }
+
+        DesignationGroup& group = groups[key];
+        group.qty += item.qty();
+        double lengthFt = item.totalLengthFeet();
+        group.totalLengthFt += lengthFt;
+        
+        if (group.wLbPerFt > 0) {
+            double weight = lengthFt * group.wLbPerFt;
+            group.totalWeightLb += weight;
+            group.totalCost += weight * pricePerLb;
+        }
     }
+
+    // Populate table
+    m_table->setRowCount(groups.size());
+    
+    double grandTotalWeight = 0.0;
+    double grandTotalCost = 0.0;
+    int grandTotalQty = 0;
+    
+    int row = 0;
+    for (auto it = groups.begin(); it != groups.end(); ++it, ++row) {
+        const DesignationGroup& group = it.value();
+        
+        m_table->setItem(row, 0, new QTableWidgetItem(group.designation));
+        m_table->setItem(row, 1, new QTableWidgetItem(QString::number(group.qty)));
+        m_table->setItem(row, 2, new QTableWidgetItem(QString::number(group.totalLengthFt, 'f', 2)));
+        m_table->setItem(row, 3, new QTableWidgetItem(
+            group.wLbPerFt > 0 ? QString::number(group.wLbPerFt, 'f', 2) : "-"));
+        m_table->setItem(row, 4, new QTableWidgetItem(
+            group.totalWeightLb > 0 ? QString::number(group.totalWeightLb, 'f', 1) : "-"));
+        m_table->setItem(row, 5, new QTableWidgetItem(QString::number(pricePerLb, 'f', 2)));
+        m_table->setItem(row, 6, new QTableWidgetItem(
+            group.totalCost > 0 ? QString::number(group.totalCost, 'f', 2) : "-"));
+        
+        grandTotalWeight += group.totalWeightLb;
+        grandTotalCost += group.totalCost;
+        grandTotalQty += group.qty;
+    }
+
+    updateTotals(grandTotalWeight, grandTotalCost, grandTotalQty);
 }
 
-void QuoteDock::updateTotals(const QuoteSummary& summary)
+void QuoteDock::updateTotals(double totalWeight, double totalCost, int totalQty)
 {
-    m_subtotalLabel->setText(QString("Subtotal: $%1").arg(summary.grandSubtotal, 0, 'f', 2));
-    m_totalLabel->setText(QString("Total: $%1").arg(summary.grandTotal, 0, 'f', 2));
-    m_weightLabel->setText(QString("Weight: %1 lb").arg(summary.grandTotalWeight, 0, 'f', 1));
+    m_totalQtyLabel->setText(QString("Items: %1").arg(totalQty));
+    m_totalWeightLabel->setText(QString("Total Weight: %1 lb").arg(totalWeight, 0, 'f', 1));
+    m_totalCostLabel->setText(QString("Total Cost: $%1").arg(totalCost, 0, 'f', 2));
 }
 
 void QuoteDock::onExportCsv()
@@ -235,35 +250,29 @@ void QuoteDock::onExportCsv()
     QTextStream out(&file);
 
     // Header
-    out << "Material Type,Size,Labor Class,Total (in),Total (ft),Weight (lb),Item Count\n";
+    out << "Designation,Qty,Total (ft),lb/ft,Weight (lb),$/lb,Cost ($)\n";
 
-    // Data rows
-    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates(), m_shapesDb);
-    for (const QuoteLineItem& item : summary.lineItems) {
-        // Escape fields that might contain commas
-        QString size = item.size;
-        if (size.contains(',') || size.contains('"')) {
-            size = "\"" + size.replace("\"", "\"\"") + "\"";
+    // Data rows from table
+    for (int row = 0; row < m_table->rowCount(); ++row) {
+        QStringList rowData;
+        for (int col = 0; col < m_table->columnCount(); ++col) {
+            QTableWidgetItem* item = m_table->item(row, col);
+            QString text = item ? item->text() : "";
+            // Escape fields that might contain commas
+            if (text.contains(',') || text.contains('"')) {
+                text = "\"" + text.replace("\"", "\"\"") + "\"";
+            }
+            rowData << text;
         }
-
-        out << item.materialTypeString() << ","
-            << size << ","
-            << item.laborClassString() << ","
-            << QString::number(item.totalLengthInches, 'f', 2) << ","
-            << QString::number(item.totalLengthFeet, 'f', 2) << ","
-            << QString::number(item.totalWeightLb, 'f', 1) << ","
-            << item.itemCount << "\n";
+        out << rowData.join(",") << "\n";
     }
 
-    // Summary row
+    // Summary
     out << "\n";
-    out << "Rates:,Material $/ft," << m_materialRateSpin->value() << "\n";
-    out << ",Labor $/ft," << m_laborRateSpin->value() << "\n";
-    out << ",Markup %," << m_markupSpin->value() << "\n";
-    out << "\n";
-    out << "Subtotal:,$" << QString::number(summary.grandSubtotal, 'f', 2) << "\n";
-    out << "Total:,$" << QString::number(summary.grandTotal, 'f', 2) << "\n";
-    out << "Total Weight:," << QString::number(summary.grandTotalWeight, 'f', 1) << " lb\n";
+    out << "Material Rate:,$" << QString::number(m_pricePerLbSpin->value(), 'f', 2) << "/lb\n";
+    out << m_totalQtyLabel->text() << "\n";
+    out << m_totalWeightLabel->text() << "\n";
+    out << m_totalCostLabel->text() << "\n";
 
     file.close();
 
@@ -271,16 +280,21 @@ void QuoteDock::onExportCsv()
         QString("Quote summary exported to:\n%1").arg(filePath));
 }
 
-void QuoteDock::onRateChanged()
+void QuoteDock::onPriceChanged()
 {
-    // Recalculate with new rates
-    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates(), m_shapesDb);
-    updateTotals(summary);
-
-    emit ratesChanged(currentRates());
+    // Recalculate with new price
+    if (m_cachedProject) {
+        updateFromProject(m_cachedProject);
+    }
+    
+    emit materialPriceChanged(m_pricePerLbSpin->value());
 }
 
 void QuoteDock::onCurrentPageOnlyToggled(bool checked)
 {
+    if (m_cachedProject) {
+        updateFromProject(m_cachedProject);
+    }
+    
     emit currentPageOnlyChanged(checked);
 }

@@ -4,19 +4,24 @@
 #include <QDockWidget>
 #include <QLineEdit>
 #include <QTextEdit>
-#include <QComboBox>
+#include <QSpinBox>
 #include <QFormLayout>
 #include <QLabel>
 #include <QWidget>
 #include <QPushButton>
+#include <QCompleter>
+#include <QStringListModel>
 
-#include "Measurement.h"
+#include "../models/TakeoffItem.h"
 
 /**
- * @brief Dock widget for editing measurement properties.
+ * @brief Dock widget for editing takeoff item properties.
  * 
- * Shows editable fields for the selected measurement:
- * Name, Notes, Category, Material Type, Size, Labor Class.
+ * Simplified properties panel showing:
+ * - Designation (with autocomplete)
+ * - Qty (spinbox)
+ * - Notes
+ * - Computed: Length, Weight, Cost
  */
 class PropertiesDock : public QDockWidget
 {
@@ -27,11 +32,11 @@ public:
     ~PropertiesDock();
 
     /**
-     * @brief Set the measurement to display/edit.
-     * @param measurement Pointer to measurement (nullptr to clear)
-     * @param id Measurement ID (for signal emission)
+     * @brief Set the takeoff item to display/edit.
+     * @param item Pointer to item (nullptr to clear)
+     * @param id Item ID (for signal emission)
      */
-    void setMeasurement(const Measurement* measurement, int id);
+    void setTakeoffItem(const TakeoffItem* item, int id);
 
     /**
      * @brief Clear the properties panel (no selection).
@@ -39,41 +44,52 @@ public:
     void clearSelection();
 
     /**
-     * @brief Update fields from measurement without emitting signals.
-     * Used when measurement is updated externally (e.g., undo/redo).
+     * @brief Update fields from item without emitting signals.
+     * Used when item is updated externally (e.g., undo/redo).
      */
-    void updateFromMeasurement(const Measurement* measurement);
+    void updateFromItem(const TakeoffItem* item);
 
     /**
-     * @brief Focus the size field and select all text.
-     * Called after a new measurement is created.
+     * @brief Update the computed values display.
+     * @param wLbPerFt Weight per foot for the assigned shape
+     * @param pricePerLb Price per pound for material cost
      */
-    void focusSizeField();
+    void updateComputedValues(double wLbPerFt, double pricePerLb);
+
+    /**
+     * @brief Focus the designation field and select all text.
+     * Called after a new item is created.
+     */
+    void focusDesignationField();
+
+    /**
+     * @brief Set the list of designations for autocomplete.
+     */
+    void setDesignationList(const QStringList& designations);
 
 signals:
-    // Emitted when user changes a field
-    void nameChanged(int measurementId, const QString& oldValue, const QString& newValue);
-    void notesChanged(int measurementId, const QString& oldValue, const QString& newValue);
-    void categoryChanged(int measurementId, Category oldValue, Category newValue);
-    void materialTypeChanged(int measurementId, MaterialType oldValue, MaterialType newValue);
-    void sizeChanged(int measurementId, const QString& oldValue, const QString& newValue);
-    void laborClassChanged(int measurementId, LaborClass oldValue, LaborClass newValue);
+    // Emitted when user changes designation
+    void designationChanged(int itemId, const QString& oldValue, const QString& newValue,
+                           int oldShapeId, int newShapeId);
     
-    // Emitted when user clicks Pick AISC Shape button
-    void pickShapeRequested(int measurementId);
+    // Emitted when user changes qty
+    void qtyChanged(int itemId, int oldValue, int newValue);
+    
+    // Emitted when user changes notes
+    void notesChanged(int itemId, const QString& oldValue, const QString& newValue);
+    
+    // Emitted when user clicks Pick button
+    void pickShapeRequested(int itemId);
 
 private slots:
-    void onNameEditingFinished();
+    void onDesignationEditingFinished();
+    void onDesignationSelected(const QString& text);
+    void onQtyValueChanged(int value);
     void onNotesChanged();
-    void onCategoryChanged(int index);
-    void onMaterialTypeChanged(int index);
-    void onSizeEditingFinished();
-    void onLaborClassChanged(int index);
     void onPickShapeClicked();
 
 private:
     void setupUi();
-    void populateComboBoxes();
     void setFieldsEnabled(bool enabled);
 
     // Container widget
@@ -84,31 +100,33 @@ private:
     QLabel* m_noSelectionLabel;
 
     // Fields
-    QLineEdit* m_nameEdit;
-    QTextEdit* m_notesEdit;
-    QComboBox* m_categoryCombo;
-    QComboBox* m_materialTypeCombo;
-    QLineEdit* m_sizeEdit;
+    QLineEdit* m_designationEdit;
+    QCompleter* m_designationCompleter;
+    QStringListModel* m_designationModel;
     QPushButton* m_pickShapeButton;
-    QComboBox* m_laborClassCombo;
+    QSpinBox* m_qtySpinBox;
+    QTextEdit* m_notesEdit;
 
     // Info label showing measurement type and length
     QLabel* m_infoLabel;
 
-    // Current measurement ID (-1 if none)
-    int m_currentMeasurementId;
+    // Computed values
+    QLabel* m_lengthLabel;
+    QLabel* m_weightLabel;
+    QLabel* m_costLabel;
+
+    // Current item ID (-1 if none)
+    int m_currentItemId;
+    int m_currentShapeId;
 
     // Cached values for detecting changes
-    QString m_cachedName;
+    QString m_cachedDesignation;
+    int m_cachedQty;
     QString m_cachedNotes;
-    Category m_cachedCategory;
-    MaterialType m_cachedMaterialType;
-    QString m_cachedSize;
-    LaborClass m_cachedLaborClass;
+    double m_cachedLengthFeet;
 
     // Flag to prevent signal emission during programmatic updates
     bool m_updatingFields;
 };
 
 #endif // PROPERTIESDOCK_H
-

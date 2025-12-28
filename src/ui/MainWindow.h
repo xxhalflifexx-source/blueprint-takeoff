@@ -16,17 +16,16 @@
 #include "PagesPanel.h"
 #include "PropertiesDock.h"
 #include "QuoteDock.h"
-#include "Project.h"
+#include "../models/Project.h"
+#include "../models/TakeoffItem.h"
 #include "UndoCommands.h"
 #include "PdfRenderer.h"
-#include "ShapesDatabase.h"
 
 /**
  * @brief Main application window for the Blueprint Takeoff MVP.
  * 
- * Contains the menu bar, toolbar, pages panel, measurement panel, blueprint view,
- * properties dock, and quote summary dock.
- * Manages project save/load, multi-page support, and undo/redo functionality.
+ * Uses SQLite for project persistence (.takeoff.db files).
+ * Manages pages, takeoff items, and quote calculations.
  */
 class MainWindow : public QMainWindow
 {
@@ -36,10 +35,10 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
-    // Internal methods used by undo commands (public so commands can access them)
-    void addMeasurementInternal(const Measurement& measurement);
-    void removeMeasurementInternal(int measurementId);
-    void setMeasurementFieldInternal(int measurementId, MeasurementField field, const QVariant& value);
+    // Internal methods used by undo commands
+    void addTakeoffItemInternal(TakeoffItem& item);
+    void removeTakeoffItemInternal(int itemId);
+    void setTakeoffItemFieldInternal(int itemId, TakeoffItemField field, const QVariant& value);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -48,17 +47,15 @@ private slots:
     // File menu
     void onNewProject();
     void onOpenProject();
-    void onSaveProject();
-    void onSaveProjectAs();
     void onAddImagePage();
     void onAddPdf();
-    void onImportAiscShapes();
+    void onImportShapes();
     void onExit();
     
     // Edit menu
     void onUndo();
     void onRedo();
-    void onDeleteMeasurement();
+    void onDeleteItem();
 
     // Tool actions
     void onToolNone();
@@ -70,7 +67,7 @@ private slots:
     void onCalibrationCompleted(double pixelsPerInch);
     void onMeasurementCompleted(const Measurement& measurement);
     void onLiveMeasurementChanged(double inches);
-    void onMeasurementSelected(int measurementId);
+    void onItemSelected(int itemId);
     void onToolCancelled();
 
     // Pages panel signals
@@ -82,16 +79,14 @@ private slots:
     void onUndoStackCleanChanged(bool clean);
 
     // Properties dock signals
-    void onPropertyNameChanged(int id, const QString& oldVal, const QString& newVal);
-    void onPropertyNotesChanged(int id, const QString& oldVal, const QString& newVal);
-    void onPropertyCategoryChanged(int id, Category oldVal, Category newVal);
-    void onPropertyMaterialTypeChanged(int id, MaterialType oldVal, MaterialType newVal);
-    void onPropertySizeChanged(int id, const QString& oldVal, const QString& newVal);
-    void onPropertyLaborClassChanged(int id, LaborClass oldVal, LaborClass newVal);
-    void onPickShapeRequested(int measurementId);
+    void onDesignationChanged(int itemId, const QString& oldVal, const QString& newVal,
+                             int oldShapeId, int newShapeId);
+    void onQtyChanged(int itemId, int oldVal, int newVal);
+    void onNotesChanged(int itemId, const QString& oldVal, const QString& newVal);
+    void onPickShapeRequested(int itemId);
 
     // Quote dock signals
-    void onQuoteRatesChanged(const QuoteRates& rates);
+    void onMaterialPriceChanged(double pricePerLb);
     void onCurrentPageOnlyChanged(bool currentPageOnly);
 
 private:
@@ -104,22 +99,19 @@ private:
     void connectSignals();
     void updateStatusBar(const QString& message);
     void updateWindowTitle();
-    void setDirty(bool dirty);
     bool maybeSave();
-    bool saveProject(const QString& filePath);
-    bool loadProject(const QString& filePath);
     void clearProject();
-    void syncProjectFromView();
-    void syncViewFromProject();
     void updateQuoteSummary();
     void updatePropertiesPanel();
     void loadCurrentPage();
-    void updateMeasurementPanelForPage();
+    void updateItemsPanelForPage();
+    void refreshDesignationAutocomplete();
+    void updateItemDisplay(int itemId);
 
     // UI Components
     BlueprintView* m_blueprintView;
     PagesPanel* m_pagesPanel;
-    MeasurementPanel* m_measurementPanel;
+    MeasurementPanel* m_itemsPanel;  // Renamed from measurementPanel
     PropertiesDock* m_propertiesDock;
     QuoteDock* m_quoteDock;
     QSplitter* m_mainSplitter;
@@ -129,17 +121,12 @@ private:
     // PDF Renderer
     PdfRenderer m_pdfRenderer;
 
-    // AISC Shapes Database
-    ShapesDatabase m_shapesDb;
-
     // File menu actions
     QAction* m_newProjectAction;
     QAction* m_openProjectAction;
-    QAction* m_saveProjectAction;
-    QAction* m_saveProjectAsAction;
     QAction* m_addImagePageAction;
     QAction* m_addPdfAction;
-    QAction* m_importAiscAction;
+    QAction* m_importShapesAction;
     QAction* m_exitAction;
 
     // Edit menu actions
@@ -160,12 +147,10 @@ private:
 
     // Project data
     Project m_project;
-    QString m_currentProjectPath;
-    bool m_dirty;
 
-    // Current page and measurement selection
+    // Current page and item selection
     QString m_currentPageId;
-    int m_selectedMeasurementId;
+    int m_selectedItemId;
 };
 
 #endif // MAINWINDOW_H

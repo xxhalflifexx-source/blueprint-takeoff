@@ -3,33 +3,19 @@
 
 #include <QString>
 #include <QVector>
-#include <QJsonObject>
+#include <memory>
 
-#include "Measurement.h"
+#include "TakeoffItem.h"
 #include "Calibration.h"
 #include "Page.h"
+#include "../core/ProjectDatabase.h"
 
 /**
- * @brief Quote rate settings for pricing calculations.
- */
-struct QuoteRates
-{
-    double materialRatePerFt = 0.0;   // $/ft for material
-    double laborRatePerFt = 0.0;      // $/ft for labor
-    double markupPercent = 0.0;       // Markup percentage
-
-    QJsonObject toJson() const;
-    static QuoteRates fromJson(const QJsonObject& json);
-};
-
-/**
- * @brief Represents a takeoff project containing pages, calibration, and measurements.
+ * @brief Represents a takeoff project with SQLite persistence.
  * 
- * Provides serialization to/from JSON for project save/load functionality.
- * Project files use the .takeoff.json extension.
- * 
- * Version 2 format supports multiple pages (image or PDF).
- * Version 1 format (single image) is supported for backwards compatibility.
+ * The Project class manages in-memory data (pages, takeoff items) and
+ * delegates all persistence to ProjectDatabase. Project files use the
+ * .takeoff.db extension (SQLite database).
  */
 class Project
 {
@@ -38,154 +24,177 @@ public:
     static const QString FILE_EXTENSION;
     static const QString FILE_FILTER;
 
-    /// Current JSON format version
-    static const int CURRENT_VERSION = 2;
-
     Project();
+    ~Project();
+
+    // ========================================================================
+    // Project File Operations
+    // ========================================================================
+
+    /**
+     * @brief Create a new project database file.
+     * @param filePath Path to .takeoff.db file
+     * @return true if successful
+     */
+    bool create(const QString& filePath);
+
+    /**
+     * @brief Open an existing project database.
+     * @param filePath Path to .takeoff.db file
+     * @return true if successful
+     */
+    bool open(const QString& filePath);
+
+    /**
+     * @brief Close the current project.
+     */
+    void close();
+
+    /**
+     * @brief Check if a project is open.
+     */
+    bool isOpen() const;
+
+    /**
+     * @brief Get the current file path.
+     */
+    QString filePath() const;
+
+    /**
+     * @brief Get the project database for direct access.
+     */
+    ProjectDatabase* database() { return m_db.get(); }
+    const ProjectDatabase* database() const { return m_db.get(); }
+
+    // ========================================================================
+    // Project Settings
+    // ========================================================================
+
+    QString name() const;
+    void setName(const QString& name);
+
+    double materialPricePerLb() const;
+    void setMaterialPricePerLb(double pricePerLb);
 
     // ========================================================================
     // Pages
     // ========================================================================
 
-    /**
-     * @brief Get all pages.
-     * @return Vector of pages
-     */
     const QVector<Page>& pages() const;
-    QVector<Page>& pages();
 
-    /**
-     * @brief Add a page to the project.
-     * @param page Page to add
-     */
     void addPage(const Page& page);
-
-    /**
-     * @brief Remove a page by ID.
-     * @param pageId Page ID to remove
-     * 
-     * Note: This also removes all measurements on that page.
-     */
     void removePage(const QString& pageId);
+    void updatePage(const Page& page);
 
-    /**
-     * @brief Find a page by ID.
-     * @param pageId Page ID
-     * @return Pointer to page, or nullptr if not found
-     */
     Page* findPage(const QString& pageId);
     const Page* findPage(const QString& pageId) const;
 
-    /**
-     * @brief Get page by index.
-     * @param index Page index
-     * @return Pointer to page, or nullptr if index invalid
-     */
     Page* pageAt(int index);
     const Page* pageAt(int index) const;
 
-    /**
-     * @brief Get index of page by ID.
-     * @param pageId Page ID
-     * @return Index, or -1 if not found
-     */
     int pageIndex(const QString& pageId) const;
 
+    /**
+     * @brief Reload pages from database.
+     */
+    void reloadPages();
+
     // ========================================================================
-    // Measurements
+    // Takeoff Items
     // ========================================================================
+
+    const QVector<TakeoffItem>& takeoffItems() const;
 
     /**
-     * @brief Get all measurements.
-     * @return Vector of all measurements
+     * @brief Get items for a specific page.
      */
-    const QVector<Measurement>& measurements() const;
-    QVector<Measurement>& measurements();
+    QVector<TakeoffItem> takeoffItemsForPage(const QString& pageId) const;
 
     /**
-     * @brief Get measurements for a specific page.
-     * @param pageId Page ID
-     * @return Vector of measurements on that page
+     * @brief Add a takeoff item. ID is assigned by database.
+     * @return The assigned ID
      */
-    QVector<Measurement> measurementsForPage(const QString& pageId) const;
-
-    void setMeasurements(const QVector<Measurement>& measurements);
-    void addMeasurement(const Measurement& measurement);
-    void removeMeasurement(int id);
-    Measurement* findMeasurement(int id);
-    const Measurement* findMeasurement(int id) const;
-    int nextMeasurementId() const;
-
-    // ========================================================================
-    // Quote rates
-    // ========================================================================
-
-    const QuoteRates& quoteRates() const;
-    QuoteRates& quoteRates();
-    void setQuoteRates(const QuoteRates& rates);
-
-    // ========================================================================
-    // Legacy accessors (for backwards compatibility during migration)
-    // ========================================================================
+    int addTakeoffItem(TakeoffItem& item);
 
     /**
-     * @brief Get the primary image path (first image page).
-     * @return Image path, or empty if no image pages
-     * @deprecated Use pages() instead
+     * @brief Update an existing takeoff item.
      */
-    QString imagePath() const;
+    void updateTakeoffItem(const TakeoffItem& item);
 
     /**
-     * @brief Get the primary calibration (first page's calibration).
-     * @return Calibration, or default if no pages
-     * @deprecated Use page-specific calibration instead
+     * @brief Remove a takeoff item.
      */
-    const Calibration& calibration() const;
-    Calibration& calibration();
+    void removeTakeoffItem(int id);
+
+    /**
+     * @brief Find a takeoff item by ID.
+     */
+    TakeoffItem* findTakeoffItem(int id);
+    const TakeoffItem* findTakeoffItem(int id) const;
+
+    /**
+     * @brief Reload items from database.
+     */
+    void reloadTakeoffItems();
 
     // ========================================================================
-    // Project management
+    // Shapes
     // ========================================================================
 
     /**
-     * @brief Clear all project data.
+     * @brief Check if shapes are loaded.
      */
-    void clear();
+    bool hasShapes() const;
 
     /**
-     * @brief Save project to a JSON file.
-     * @param filePath Path to save to
-     * @return true if successful, false on error
+     * @brief Get shape count.
      */
-    bool saveToJson(const QString& filePath) const;
+    int shapeCount() const;
 
     /**
-     * @brief Load project from a JSON file.
-     * @param filePath Path to load from
-     * @return true if successful, false on error
+     * @brief Get all designations for autocomplete.
      */
-    bool loadFromJson(const QString& filePath);
+    QStringList allDesignations() const;
 
     /**
-     * @brief Get the last error message.
-     * @return Error description string
+     * @brief Get shape types for filtering.
      */
+    QStringList shapeTypes() const;
+
+    /**
+     * @brief Search shapes.
+     */
+    QVector<ProjectDatabase::Shape> searchShapes(const QString& text, 
+                                                  const QString& typeFilter = QString(),
+                                                  int limit = 100) const;
+
+    /**
+     * @brief Get shape by ID.
+     */
+    ProjectDatabase::Shape getShape(int shapeId) const;
+
+    /**
+     * @brief Get shape by designation.
+     */
+    ProjectDatabase::Shape getShapeByDesignation(const QString& designation) const;
+
+    /**
+     * @brief Import shapes from CSV.
+     * @return Number of shapes imported, or -1 on error
+     */
+    int importShapesFromCsv(const QString& csvPath);
+
+    // ========================================================================
+    // Error Handling
+    // ========================================================================
+
     QString lastError() const;
 
 private:
+    std::unique_ptr<ProjectDatabase> m_db;
     QVector<Page> m_pages;
-    QVector<Measurement> m_measurements;
-    QuoteRates m_quoteRates;
+    QVector<TakeoffItem> m_takeoffItems;
     mutable QString m_lastError;
-
-    // For legacy calibration() accessor when no pages exist
-    mutable Calibration m_defaultCalibration;
-
-    /**
-     * @brief Migrate version 1 project format to version 2.
-     * @param root JSON root object
-     */
-    void migrateFromVersion1(const QJsonObject& root);
 };
 
 #endif // PROJECT_H

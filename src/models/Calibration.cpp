@@ -60,6 +60,18 @@ void Calibration::reset()
     m_realDistanceInches = 0.0;
 }
 
+void Calibration::setPixelsPerInch(double ppi)
+{
+    m_pixelsPerInch = ppi;
+    m_calibrated = (ppi > 0.0);
+}
+
+void Calibration::setCalibrationPoints(const QPointF& p1, const QPointF& p2)
+{
+    m_point1 = p1;
+    m_point2 = p2;
+}
+
 QJsonObject Calibration::toJson() const
 {
     QJsonObject json;

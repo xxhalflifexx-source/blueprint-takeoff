@@ -1,47 +1,91 @@
 #include "Project.h"
 
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QUuid>
-
-// ============================================================================
-// QuoteRates
-// ============================================================================
-
-QJsonObject QuoteRates::toJson() const
-{
-    QJsonObject json;
-    json["materialRatePerFt"] = materialRatePerFt;
-    json["laborRatePerFt"] = laborRatePerFt;
-    json["markupPercent"] = markupPercent;
-    return json;
-}
-
-QuoteRates QuoteRates::fromJson(const QJsonObject& json)
-{
-    QuoteRates rates;
-    rates.materialRatePerFt = json["materialRatePerFt"].toDouble(0.0);
-    rates.laborRatePerFt = json["laborRatePerFt"].toDouble(0.0);
-    rates.markupPercent = json["markupPercent"].toDouble(0.0);
-    return rates;
-}
-
-// ============================================================================
-// Project
-// ============================================================================
-
-const QString Project::FILE_EXTENSION = ".takeoff.json";
-const QString Project::FILE_FILTER = "Takeoff Project (*.takeoff.json);;All Files (*)";
+const QString Project::FILE_EXTENSION = ".takeoff.db";
+const QString Project::FILE_FILTER = "Takeoff Project (*.takeoff.db);;All Files (*)";
 
 Project::Project()
-    : m_pages()
-    , m_measurements()
-    , m_quoteRates()
-    , m_lastError()
-    , m_defaultCalibration()
+    : m_db(std::make_unique<ProjectDatabase>())
 {
+}
+
+Project::~Project()
+{
+    close();
+}
+
+// ============================================================================
+// Project File Operations
+// ============================================================================
+
+bool Project::create(const QString& filePath)
+{
+    close();
+
+    if (!m_db->create(filePath)) {
+        m_lastError = m_db->lastError();
+        return false;
+    }
+
+    m_pages.clear();
+    m_takeoffItems.clear();
+    return true;
+}
+
+bool Project::open(const QString& filePath)
+{
+    close();
+
+    if (!m_db->open(filePath)) {
+        m_lastError = m_db->lastError();
+        return false;
+    }
+
+    reloadPages();
+    reloadTakeoffItems();
+    return true;
+}
+
+void Project::close()
+{
+    if (m_db->isOpen()) {
+        m_db->close();
+    }
+    m_pages.clear();
+    m_takeoffItems.clear();
+}
+
+bool Project::isOpen() const
+{
+    return m_db->isOpen();
+}
+
+QString Project::filePath() const
+{
+    return m_db->filePath();
+}
+
+// ============================================================================
+// Project Settings
+// ============================================================================
+
+QString Project::name() const
+{
+    return m_db->getProjectName();
+}
+
+void Project::setName(const QString& name)
+{
+    m_db->setProjectName(name);
+}
+
+double Project::materialPricePerLb() const
+{
+    return m_db->getMaterialPricePerLb();
+}
+
+void Project::setMaterialPricePerLb(double pricePerLb)
+{
+    m_db->setMaterialPricePerLb(pricePerLb);
 }
 
 // ============================================================================
@@ -53,31 +97,48 @@ const QVector<Page>& Project::pages() const
     return m_pages;
 }
 
-QVector<Page>& Project::pages()
-{
-    return m_pages;
-}
-
 void Project::addPage(const Page& page)
 {
-    m_pages.append(page);
+    if (m_db->insertPage(page)) {
+        m_pages.append(page);
+    } else {
+        m_lastError = m_db->lastError();
+    }
 }
 
 void Project::removePage(const QString& pageId)
 {
-    // Remove all measurements on this page first
-    for (int i = m_measurements.size() - 1; i >= 0; --i) {
-        if (m_measurements[i].pageId() == pageId) {
-            m_measurements.removeAt(i);
+    if (m_db->deletePage(pageId)) {
+        // Remove from in-memory cache
+        for (int i = m_pages.size() - 1; i >= 0; --i) {
+            if (m_pages[i].id() == pageId) {
+                m_pages.removeAt(i);
+                break;
+            }
         }
+        // Remove associated items from cache
+        for (int i = m_takeoffItems.size() - 1; i >= 0; --i) {
+            if (m_takeoffItems[i].pageId() == pageId) {
+                m_takeoffItems.removeAt(i);
+            }
+        }
+    } else {
+        m_lastError = m_db->lastError();
     }
+}
 
-    // Remove the page
-    for (int i = 0; i < m_pages.size(); ++i) {
-        if (m_pages[i].id() == pageId) {
-            m_pages.removeAt(i);
-            return;
+void Project::updatePage(const Page& page)
+{
+    if (m_db->updatePage(page)) {
+        // Update in-memory cache
+        for (int i = 0; i < m_pages.size(); ++i) {
+            if (m_pages[i].id() == page.id()) {
+                m_pages[i] = page;
+                break;
+            }
         }
+    } else {
+        m_lastError = m_db->lastError();
     }
 }
 
@@ -127,288 +188,146 @@ int Project::pageIndex(const QString& pageId) const
     return -1;
 }
 
-// ============================================================================
-// Measurements
-// ============================================================================
-
-const QVector<Measurement>& Project::measurements() const
+void Project::reloadPages()
 {
-    return m_measurements;
+    m_pages = m_db->getAllPages();
 }
 
-QVector<Measurement>& Project::measurements()
+// ============================================================================
+// Takeoff Items
+// ============================================================================
+
+const QVector<TakeoffItem>& Project::takeoffItems() const
 {
-    return m_measurements;
+    return m_takeoffItems;
 }
 
-QVector<Measurement> Project::measurementsForPage(const QString& pageId) const
+QVector<TakeoffItem> Project::takeoffItemsForPage(const QString& pageId) const
 {
-    QVector<Measurement> result;
-    for (const Measurement& m : m_measurements) {
-        if (m.pageId() == pageId) {
-            result.append(m);
+    QVector<TakeoffItem> result;
+    for (const TakeoffItem& item : m_takeoffItems) {
+        if (item.pageId() == pageId) {
+            result.append(item);
         }
     }
     return result;
 }
 
-void Project::setMeasurements(const QVector<Measurement>& measurements)
+int Project::addTakeoffItem(TakeoffItem& item)
 {
-    m_measurements = measurements;
+    int newId = m_db->insertTakeoffItem(item);
+    if (newId > 0) {
+        item.setId(newId);
+        m_takeoffItems.append(item);
+        return newId;
+    }
+    m_lastError = m_db->lastError();
+    return -1;
 }
 
-void Project::addMeasurement(const Measurement& measurement)
+void Project::updateTakeoffItem(const TakeoffItem& item)
 {
-    m_measurements.append(measurement);
-}
-
-void Project::removeMeasurement(int id)
-{
-    for (int i = 0; i < m_measurements.size(); ++i) {
-        if (m_measurements[i].id() == id) {
-            m_measurements.removeAt(i);
-            return;
-        }
-    }
-}
-
-Measurement* Project::findMeasurement(int id)
-{
-    for (int i = 0; i < m_measurements.size(); ++i) {
-        if (m_measurements[i].id() == id) {
-            return &m_measurements[i];
-        }
-    }
-    return nullptr;
-}
-
-const Measurement* Project::findMeasurement(int id) const
-{
-    for (int i = 0; i < m_measurements.size(); ++i) {
-        if (m_measurements[i].id() == id) {
-            return &m_measurements[i];
-        }
-    }
-    return nullptr;
-}
-
-int Project::nextMeasurementId() const
-{
-    int maxId = 0;
-    for (const Measurement& m : m_measurements) {
-        if (m.id() > maxId) {
-            maxId = m.id();
-        }
-    }
-    return maxId + 1;
-}
-
-// ============================================================================
-// Quote Rates
-// ============================================================================
-
-const QuoteRates& Project::quoteRates() const
-{
-    return m_quoteRates;
-}
-
-QuoteRates& Project::quoteRates()
-{
-    return m_quoteRates;
-}
-
-void Project::setQuoteRates(const QuoteRates& rates)
-{
-    m_quoteRates = rates;
-}
-
-// ============================================================================
-// Legacy Accessors
-// ============================================================================
-
-QString Project::imagePath() const
-{
-    // Return the first image page's path
-    for (const Page& page : m_pages) {
-        if (page.type() == PageType::Image) {
-            return page.sourcePath();
-        }
-    }
-    // Or just return the first page's source path
-    if (!m_pages.isEmpty()) {
-        return m_pages.first().sourcePath();
-    }
-    return QString();
-}
-
-const Calibration& Project::calibration() const
-{
-    // Return the first page's calibration
-    if (!m_pages.isEmpty()) {
-        return m_pages.first().calibration();
-    }
-    return m_defaultCalibration;
-}
-
-Calibration& Project::calibration()
-{
-    // Return the first page's calibration
-    if (!m_pages.isEmpty()) {
-        return m_pages.first().calibration();
-    }
-    return m_defaultCalibration;
-}
-
-// ============================================================================
-// Project Management
-// ============================================================================
-
-void Project::clear()
-{
-    m_pages.clear();
-    m_measurements.clear();
-    m_quoteRates = QuoteRates();
-    m_defaultCalibration.reset();
-    m_lastError.clear();
-}
-
-bool Project::saveToJson(const QString& filePath) const
-{
-    QJsonObject root;
-
-    // Version 2 format
-    root["version"] = CURRENT_VERSION;
-
-    // Pages array
-    QJsonArray pagesArray;
-    for (const Page& page : m_pages) {
-        pagesArray.append(page.toJson());
-    }
-    root["pages"] = pagesArray;
-
-    // Quote rates
-    root["quoteRates"] = m_quoteRates.toJson();
-
-    // Measurements array
-    QJsonArray measurementsArray;
-    for (const Measurement& m : m_measurements) {
-        measurementsArray.append(m.toJson());
-    }
-    root["measurements"] = measurementsArray;
-
-    // Write to file
-    QJsonDocument doc(root);
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        m_lastError = QString("Cannot open file for writing: %1").arg(file.errorString());
-        return false;
-    }
-
-    // Pretty-printed JSON
-    file.write(doc.toJson(QJsonDocument::Indented));
-    file.close();
-
-    m_lastError.clear();
-    return true;
-}
-
-bool Project::loadFromJson(const QString& filePath)
-{
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        m_lastError = QString("Cannot open file for reading: %1").arg(file.errorString());
-        return false;
-    }
-
-    QByteArray data = file.readAll();
-    file.close();
-
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (parseError.error != QJsonParseError::NoError) {
-        m_lastError = QString("JSON parse error: %1").arg(parseError.errorString());
-        return false;
-    }
-
-    if (!doc.isObject()) {
-        m_lastError = "Invalid project file: root is not an object";
-        return false;
-    }
-
-    QJsonObject root = doc.object();
-
-    // Check version
-    int version = root["version"].toInt(1);
-    if (version > CURRENT_VERSION) {
-        m_lastError = QString("Project file version %1 is not supported (max: %2)")
-            .arg(version).arg(CURRENT_VERSION);
-        return false;
-    }
-
-    // Clear existing data
-    clear();
-
-    // Handle version 1 (legacy single-image format)
-    if (version == 1) {
-        migrateFromVersion1(root);
-        return m_lastError.isEmpty();
-    }
-
-    // Version 2+ format: load pages array
-    QJsonArray pagesArray = root["pages"].toArray();
-    for (const QJsonValue& val : pagesArray) {
-        m_pages.append(Page::fromJson(val.toObject()));
-    }
-
-    // Quote rates (with defaults for backwards compatibility)
-    if (root.contains("quoteRates")) {
-        m_quoteRates = QuoteRates::fromJson(root["quoteRates"].toObject());
-    }
-
-    // Measurements
-    QJsonArray measurementsArray = root["measurements"].toArray();
-    for (const QJsonValue& val : measurementsArray) {
-        m_measurements.append(Measurement::fromJson(val.toObject()));
-    }
-
-    m_lastError.clear();
-    return true;
-}
-
-void Project::migrateFromVersion1(const QJsonObject& root)
-{
-    // Create a single Image page from old format
-    QString imagePath = root["imagePath"].toString();
-    
-    if (!imagePath.isEmpty()) {
-        Page page = Page::createImagePage(imagePath);
-        
-        // Load calibration into the page
-        if (root.contains("calibration")) {
-            page.calibration().fromJson(root["calibration"].toObject());
-        }
-        
-        m_pages.append(page);
-        
-        // Load measurements and assign them to this page
-        QJsonArray measurementsArray = root["measurements"].toArray();
-        for (const QJsonValue& val : measurementsArray) {
-            Measurement m = Measurement::fromJson(val.toObject());
-            // Set pageId to the new page if not already set
-            if (m.pageId().isEmpty()) {
-                m.setPageId(page.id());
+    if (m_db->updateTakeoffItem(item)) {
+        // Update in-memory cache
+        for (int i = 0; i < m_takeoffItems.size(); ++i) {
+            if (m_takeoffItems[i].id() == item.id()) {
+                m_takeoffItems[i] = item;
+                break;
             }
-            m_measurements.append(m);
+        }
+    } else {
+        m_lastError = m_db->lastError();
+    }
+}
+
+void Project::removeTakeoffItem(int id)
+{
+    if (m_db->deleteTakeoffItem(id)) {
+        for (int i = m_takeoffItems.size() - 1; i >= 0; --i) {
+            if (m_takeoffItems[i].id() == id) {
+                m_takeoffItems.removeAt(i);
+                break;
+            }
+        }
+    } else {
+        m_lastError = m_db->lastError();
+    }
+}
+
+TakeoffItem* Project::findTakeoffItem(int id)
+{
+    for (int i = 0; i < m_takeoffItems.size(); ++i) {
+        if (m_takeoffItems[i].id() == id) {
+            return &m_takeoffItems[i];
         }
     }
-
-    // Quote rates
-    if (root.contains("quoteRates")) {
-        m_quoteRates = QuoteRates::fromJson(root["quoteRates"].toObject());
-    }
-
-    m_lastError.clear();
+    return nullptr;
 }
+
+const TakeoffItem* Project::findTakeoffItem(int id) const
+{
+    for (int i = 0; i < m_takeoffItems.size(); ++i) {
+        if (m_takeoffItems[i].id() == id) {
+            return &m_takeoffItems[i];
+        }
+    }
+    return nullptr;
+}
+
+void Project::reloadTakeoffItems()
+{
+    m_takeoffItems = m_db->getAllTakeoffItems();
+}
+
+// ============================================================================
+// Shapes
+// ============================================================================
+
+bool Project::hasShapes() const
+{
+    return m_db->hasShapes();
+}
+
+int Project::shapeCount() const
+{
+    return m_db->getShapeCount();
+}
+
+QStringList Project::allDesignations() const
+{
+    return m_db->getAllDesignations();
+}
+
+QStringList Project::shapeTypes() const
+{
+    return m_db->getShapeTypes();
+}
+
+QVector<ProjectDatabase::Shape> Project::searchShapes(const QString& text,
+                                                       const QString& typeFilter,
+                                                       int limit) const
+{
+    return m_db->searchShapes(text, typeFilter, limit);
+}
+
+ProjectDatabase::Shape Project::getShape(int shapeId) const
+{
+    return m_db->getShape(shapeId);
+}
+
+ProjectDatabase::Shape Project::getShapeByDesignation(const QString& designation) const
+{
+    return m_db->getShapeByDesignation(designation);
+}
+
+int Project::importShapesFromCsv(const QString& csvPath)
+{
+    return m_db->importShapesFromCsv(csvPath);
+}
+
+// ============================================================================
+// Error Handling
+// ============================================================================
 
 QString Project::lastError() const
 {

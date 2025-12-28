@@ -8,15 +8,6 @@
 #include "Calibration.h"
 
 /**
- * @brief Type of page source.
- */
-enum class PageType
-{
-    Image,  // PNG/JPG image file
-    Pdf     // PDF file (single page)
-};
-
-/**
  * @brief Represents a single page in a multi-page project.
  * 
  * Each page has its own source (image or PDF page), calibration,
@@ -25,6 +16,14 @@ enum class PageType
 class Page
 {
 public:
+    /**
+     * @brief Type of page source.
+     */
+    enum Type {
+        Image,  // PNG/JPG image file
+        Pdf     // PDF file (single page)
+    };
+
     Page();
     
     /**
@@ -45,7 +44,7 @@ public:
 
     // Accessors
     QString id() const;
-    PageType type() const;
+    Type type() const;
     QString sourcePath() const;
     int pdfPageIndex() const;
     int pdfTotalPages() const;
@@ -55,7 +54,7 @@ public:
 
     // Setters
     void setId(const QString& id);
-    void setType(PageType type);
+    void setType(Type type);
     void setSourcePath(const QString& path);
     void setPdfPageIndex(int index);
     void setPdfTotalPages(int total);
@@ -77,9 +76,9 @@ public:
     /**
      * @brief Parse type from string.
      * @param str String representation
-     * @return PageType
+     * @return Page::Type
      */
-    static PageType typeFromString(const QString& str);
+    static Type typeFromString(const QString& str);
 
     /**
      * @brief Serialize to JSON.
@@ -96,7 +95,7 @@ public:
 
 private:
     QString m_id;
-    PageType m_type;
+    Type m_type;
     QString m_sourcePath;
     int m_pdfPageIndex;
     int m_pdfTotalPages;

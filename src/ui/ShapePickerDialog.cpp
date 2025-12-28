@@ -6,7 +6,7 @@
 #include <QHeaderView>
 #include <QTimer>
 
-ShapePickerDialog::ShapePickerDialog(ShapesDatabase* db, QWidget* parent)
+ShapePickerDialog::ShapePickerDialog(ProjectDatabase* db, QWidget* parent)
     : QDialog(parent)
     , m_db(db)
     , m_typeFilter(nullptr)
@@ -30,8 +30,8 @@ ShapePickerDialog::~ShapePickerDialog()
 void ShapePickerDialog::setupUi()
 {
     setWindowTitle("Pick AISC Shape");
-    setMinimumSize(700, 500);
-    resize(800, 600);
+    setMinimumSize(600, 400);
+    resize(700, 500);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
@@ -47,7 +47,7 @@ void ShapePickerDialog::setupUi()
 
     filterLayout->addWidget(new QLabel("Search:", this));
     m_searchBox = new QLineEdit(this);
-    m_searchBox->setPlaceholderText("Filter by label or name...");
+    m_searchBox->setPlaceholderText("Filter by designation...");
     m_searchBox->setClearButtonEnabled(true);
     filterLayout->addWidget(m_searchBox, 1);
 
@@ -55,8 +55,8 @@ void ShapePickerDialog::setupUi()
 
     // Table
     m_table = new QTableWidget(this);
-    m_table->setColumnCount(5);
-    m_table->setHorizontalHeaderLabels({"Label", "EDI Name", "W (lb/ft)", "d (in)", "bf (in)"});
+    m_table->setColumnCount(3);
+    m_table->setHorizontalHeaderLabels({"Designation", "Type", "W (lb/ft)"});
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -139,28 +139,24 @@ void ShapePickerDialog::refreshTable()
     QString typeFilter = m_typeFilter->currentData().toString();
     QString searchText = m_searchBox->text().trimmed();
 
-    QVector<ShapeRow> shapes = m_db->queryShapes(typeFilter, searchText, 500);
+    QVector<ProjectDatabase::Shape> shapes = m_db->searchShapes(searchText, typeFilter, 500);
 
     m_table->setRowCount(shapes.size());
 
     for (int i = 0; i < shapes.size(); ++i) {
-        const ShapeRow& shape = shapes[i];
+        const ProjectDatabase::Shape& shape = shapes[i];
 
-        QTableWidgetItem* labelItem = new QTableWidgetItem(shape.aiscLabel);
-        labelItem->setData(Qt::UserRole, shape.id);
-        labelItem->setData(Qt::UserRole + 1, shape.weightPerFt);
-        m_table->setItem(i, 0, labelItem);
+        QTableWidgetItem* desigItem = new QTableWidgetItem(shape.designation);
+        desigItem->setData(Qt::UserRole, shape.id);
+        desigItem->setData(Qt::UserRole + 1, shape.wLbPerFt);
+        m_table->setItem(i, 0, desigItem);
 
-        m_table->setItem(i, 1, new QTableWidgetItem(shape.ediName));
+        m_table->setItem(i, 1, new QTableWidgetItem(shape.shapeType));
         m_table->setItem(i, 2, new QTableWidgetItem(
-            shape.weightPerFt > 0 ? QString::number(shape.weightPerFt, 'f', 2) : ""));
-        m_table->setItem(i, 3, new QTableWidgetItem(
-            shape.depth > 0 ? QString::number(shape.depth, 'f', 2) : ""));
-        m_table->setItem(i, 4, new QTableWidgetItem(
-            shape.flangeWidth > 0 ? QString::number(shape.flangeWidth, 'f', 2) : ""));
+            shape.wLbPerFt > 0 ? QString::number(shape.wLbPerFt, 'f', 2) : ""));
     }
 
-    int total = m_db->shapeCount();
+    int total = m_db->getShapeCount();
     if (shapes.size() < total) {
         m_statusLabel->setText(QString("Showing %1 of %2 shapes").arg(shapes.size()).arg(total));
     } else {
@@ -192,12 +188,12 @@ void ShapePickerDialog::onTableSelectionChanged()
 
     // Get the first column item of the selected row
     int row = selected.first()->row();
-    QTableWidgetItem* labelItem = m_table->item(row, 0);
+    QTableWidgetItem* desigItem = m_table->item(row, 0);
     
-    if (labelItem) {
-        m_selectedId = labelItem->data(Qt::UserRole).toInt();
-        m_selectedLabel = labelItem->text();
-        m_selectedWeight = labelItem->data(Qt::UserRole + 1).toDouble();
+    if (desigItem) {
+        m_selectedId = desigItem->data(Qt::UserRole).toInt();
+        m_selectedLabel = desigItem->text();
+        m_selectedWeight = desigItem->data(Qt::UserRole + 1).toDouble();
         m_okButton->setEnabled(true);
     }
 }
@@ -206,11 +202,11 @@ void ShapePickerDialog::onTableDoubleClicked(int row, int column)
 {
     Q_UNUSED(column);
     
-    QTableWidgetItem* labelItem = m_table->item(row, 0);
-    if (labelItem) {
-        m_selectedId = labelItem->data(Qt::UserRole).toInt();
-        m_selectedLabel = labelItem->text();
-        m_selectedWeight = labelItem->data(Qt::UserRole + 1).toDouble();
+    QTableWidgetItem* desigItem = m_table->item(row, 0);
+    if (desigItem) {
+        m_selectedId = desigItem->data(Qt::UserRole).toInt();
+        m_selectedLabel = desigItem->text();
+        m_selectedWeight = desigItem->data(Qt::UserRole + 1).toDouble();
         accept();
     }
 }
@@ -229,4 +225,3 @@ double ShapePickerDialog::selectedShapeWeight() const
 {
     return m_selectedWeight;
 }
-

@@ -47,10 +47,33 @@ public:
     QPointF point2() const;
 
     /**
+     * @brief Alias for point1().
+     */
+    QPointF calibrationPoint1() const { return point1(); }
+
+    /**
+     * @brief Alias for point2().
+     */
+    QPointF calibrationPoint2() const { return point2(); }
+
+    /**
      * @brief Get the real distance used for calibration.
      * @return Distance in inches
      */
     double realDistanceInches() const;
+
+    /**
+     * @brief Set the pixels per inch value directly.
+     * @param ppi Pixels per inch
+     */
+    void setPixelsPerInch(double ppi);
+
+    /**
+     * @brief Set the calibration points directly.
+     * @param p1 First point
+     * @param p2 Second point
+     */
+    void setCalibrationPoints(const QPointF& p1, const QPointF& p2);
 
     /**
      * @brief Reset calibration to default state.

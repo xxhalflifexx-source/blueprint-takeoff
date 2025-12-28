@@ -8,7 +8,7 @@
 #include <QPushButton>
 #include <QLabel>
 
-#include "ShapesDatabase.h"
+#include "../core/ProjectDatabase.h"
 
 /**
  * @brief Dialog for selecting an AISC shape from the database.
@@ -21,7 +21,7 @@ class ShapePickerDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit ShapePickerDialog(ShapesDatabase* db, QWidget* parent = nullptr);
+    explicit ShapePickerDialog(ProjectDatabase* db, QWidget* parent = nullptr);
     ~ShapePickerDialog();
 
     /**
@@ -32,7 +32,7 @@ public:
 
     /**
      * @brief Get the selected shape label.
-     * @return AISC label or empty string if none selected
+     * @return Designation or empty string if none selected
      */
     QString selectedShapeLabel() const;
 
@@ -53,7 +53,7 @@ private:
     void populateTypeFilter();
     void refreshTable();
 
-    ShapesDatabase* m_db;
+    ProjectDatabase* m_db;
 
     // UI Elements
     QComboBox* m_typeFilter;
@@ -70,4 +70,3 @@ private:
 };
 
 #endif // SHAPEPICKERDIALOG_H
-

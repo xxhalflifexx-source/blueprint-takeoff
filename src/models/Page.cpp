@@ -4,7 +4,7 @@
 
 Page::Page()
     : m_id(QUuid::createUuid().toString(QUuid::WithoutBraces))
-    , m_type(PageType::Image)
+    , m_type(Page::Image)
     , m_sourcePath()
     , m_pdfPageIndex(0)
     , m_pdfTotalPages(0)
@@ -16,7 +16,7 @@ Page::Page()
 Page Page::createImagePage(const QString& sourcePath)
 {
     Page page;
-    page.m_type = PageType::Image;
+    page.m_type = Page::Image;
     page.m_sourcePath = sourcePath;
     return page;
 }
@@ -24,7 +24,7 @@ Page Page::createImagePage(const QString& sourcePath)
 Page Page::createPdfPage(const QString& sourcePath, int pageIndex, int totalPages)
 {
     Page page;
-    page.m_type = PageType::Pdf;
+    page.m_type = Page::Pdf;
     page.m_sourcePath = sourcePath;
     page.m_pdfPageIndex = pageIndex;
     page.m_pdfTotalPages = totalPages;
@@ -40,7 +40,7 @@ QString Page::id() const
     return m_id;
 }
 
-PageType Page::type() const
+Page::Type Page::type() const
 {
     return m_type;
 }
@@ -84,7 +84,7 @@ void Page::setId(const QString& id)
     m_id = id;
 }
 
-void Page::setType(PageType type)
+void Page::setType(Page::Type type)
 {
     m_type = type;
 }
@@ -127,7 +127,7 @@ QString Page::listDisplayString() const
         return m_displayName;
     }
     
-    if (m_type == PageType::Pdf) {
+    if (m_type == Page::Pdf) {
         return QString("PDF: %1 (%2/%3)")
             .arg(fileName)
             .arg(m_pdfPageIndex + 1)  // 1-based for display
@@ -140,16 +140,16 @@ QString Page::listDisplayString() const
 QString Page::typeString() const
 {
     switch (m_type) {
-        case PageType::Image: return "Image";
-        case PageType::Pdf:   return "Pdf";
-        default:              return "Image";
+        case Page::Image: return "Image";
+        case Page::Pdf:   return "Pdf";
+        default:          return "Image";
     }
 }
 
-PageType Page::typeFromString(const QString& str)
+Page::Type Page::typeFromString(const QString& str)
 {
-    if (str == "Pdf") return PageType::Pdf;
-    return PageType::Image;
+    if (str == "Pdf") return Page::Pdf;
+    return Page::Image;
 }
 
 // ============================================================================

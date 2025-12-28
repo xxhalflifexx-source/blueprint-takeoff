@@ -3,35 +3,29 @@
 
 #include <QUndoCommand>
 #include <QVariant>
-#include "Measurement.h"
+#include "../models/TakeoffItem.h"
 
 // Forward declarations
 class MainWindow;
 
 /**
- * @brief Field identifiers for measurement properties.
+ * @brief Field identifiers for takeoff item properties.
  */
-enum class MeasurementField
+enum class TakeoffItemField
 {
-    Name,
+    Designation,
+    Qty,
     Notes,
-    Category,
-    MaterialType,
-    Size,
-    LaborClass,
-    ShapeId,
-    ShapeLabel
+    ShapeId
 };
 
 /**
- * @brief Undo command for adding a measurement.
- * 
- * Undo removes the measurement, redo adds it back.
+ * @brief Undo command for adding a takeoff item.
  */
-class AddMeasurementCommand : public QUndoCommand
+class AddTakeoffItemCommand : public QUndoCommand
 {
 public:
-    AddMeasurementCommand(MainWindow* mainWindow, const Measurement& measurement,
+    AddTakeoffItemCommand(MainWindow* mainWindow, const TakeoffItem& item,
                           QUndoCommand* parent = nullptr);
 
     void undo() override;
@@ -39,19 +33,17 @@ public:
 
 private:
     MainWindow* m_mainWindow;
-    Measurement m_measurement;
-    bool m_firstRedo;  // Skip first redo since measurement is already added
+    TakeoffItem m_item;
+    bool m_firstRedo;
 };
 
 /**
- * @brief Undo command for deleting a measurement.
- * 
- * Undo restores the measurement, redo removes it again.
+ * @brief Undo command for deleting a takeoff item.
  */
-class DeleteMeasurementCommand : public QUndoCommand
+class DeleteTakeoffItemCommand : public QUndoCommand
 {
 public:
-    DeleteMeasurementCommand(MainWindow* mainWindow, const Measurement& measurement,
+    DeleteTakeoffItemCommand(MainWindow* mainWindow, const TakeoffItem& item,
                              QUndoCommand* parent = nullptr);
 
     void undo() override;
@@ -59,21 +51,19 @@ public:
 
 private:
     MainWindow* m_mainWindow;
-    Measurement m_measurement;
-    bool m_firstRedo;  // Skip first redo since measurement is already deleted
+    TakeoffItem m_item;
+    bool m_firstRedo;
 };
 
 /**
- * @brief Undo command for changing a measurement property field.
- * 
- * Supports name, notes, category, materialType, size, laborClass.
+ * @brief Undo command for changing a takeoff item property field.
  */
-class SetMeasurementFieldCommand : public QUndoCommand
+class SetTakeoffItemFieldCommand : public QUndoCommand
 {
 public:
-    SetMeasurementFieldCommand(MainWindow* mainWindow,
-                               int measurementId,
-                               MeasurementField field,
+    SetTakeoffItemFieldCommand(MainWindow* mainWindow,
+                               int itemId,
+                               TakeoffItemField field,
                                const QVariant& oldValue,
                                const QVariant& newValue,
                                QUndoCommand* parent = nullptr);
@@ -81,7 +71,6 @@ public:
     void undo() override;
     void redo() override;
 
-    // Allow merging consecutive edits to the same field
     int id() const override;
     bool mergeWith(const QUndoCommand* other) override;
 
@@ -90,8 +79,8 @@ private:
     QString fieldName() const;
 
     MainWindow* m_mainWindow;
-    int m_measurementId;
-    MeasurementField m_field;
+    int m_itemId;
+    TakeoffItemField m_field;
     QVariant m_oldValue;
     QVariant m_newValue;
     bool m_firstRedo;

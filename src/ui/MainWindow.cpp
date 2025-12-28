@@ -15,7 +15,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_blueprintView(nullptr)
     , m_pagesPanel(nullptr)
-    , m_measurementPanel(nullptr)
+    , m_itemsPanel(nullptr)
     , m_propertiesDock(nullptr)
     , m_quoteDock(nullptr)
     , m_mainSplitter(nullptr)
@@ -23,11 +23,9 @@ MainWindow::MainWindow(QWidget* parent)
     , m_toolBar(nullptr)
     , m_newProjectAction(nullptr)
     , m_openProjectAction(nullptr)
-    , m_saveProjectAction(nullptr)
-    , m_saveProjectAsAction(nullptr)
     , m_addImagePageAction(nullptr)
     , m_addPdfAction(nullptr)
-    , m_importAiscAction(nullptr)
+    , m_importShapesAction(nullptr)
     , m_exitAction(nullptr)
     , m_undoAction(nullptr)
     , m_redoAction(nullptr)
@@ -39,15 +37,10 @@ MainWindow::MainWindow(QWidget* parent)
     , m_polylineAction(nullptr)
     , m_toolGroup(nullptr)
     , m_undoStack(nullptr)
-    , m_currentProjectPath()
-    , m_dirty(false)
     , m_currentPageId()
-    , m_selectedMeasurementId(-1)
+    , m_selectedItemId(-1)
 {
     m_undoStack = new QUndoStack(this);
-    
-    // Open shapes database
-    m_shapesDb.open();
     
     setupUi();
     connectSignals();
@@ -57,7 +50,6 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow()
 {
-    // Qt handles child deletion
 }
 
 void MainWindow::setupUi()
@@ -77,7 +69,7 @@ void MainWindow::createMenuBar()
     // === File menu ===
     QMenu* fileMenu = menuBar->addMenu("&File");
 
-    m_newProjectAction = new QAction("&New Project", this);
+    m_newProjectAction = new QAction("&New Project...", this);
     m_newProjectAction->setShortcut(QKeySequence::New);
     m_newProjectAction->setStatusTip("Create a new project");
     fileMenu->addAction(m_newProjectAction);
@@ -89,31 +81,22 @@ void MainWindow::createMenuBar()
 
     fileMenu->addSeparator();
 
-    m_saveProjectAction = new QAction("&Save Project", this);
-    m_saveProjectAction->setShortcut(QKeySequence::Save);
-    m_saveProjectAction->setStatusTip("Save the current project");
-    fileMenu->addAction(m_saveProjectAction);
-
-    m_saveProjectAsAction = new QAction("Save Project &As...", this);
-    m_saveProjectAsAction->setShortcut(QKeySequence::SaveAs);
-    m_saveProjectAsAction->setStatusTip("Save the project with a new name");
-    fileMenu->addAction(m_saveProjectAsAction);
-
-    fileMenu->addSeparator();
-
     m_addImagePageAction = new QAction("Add &Image Page...", this);
     m_addImagePageAction->setStatusTip("Add an image (PNG/JPG) as a new page");
+    m_addImagePageAction->setEnabled(false);
     fileMenu->addAction(m_addImagePageAction);
 
     m_addPdfAction = new QAction("Add P&DF...", this);
     m_addPdfAction->setStatusTip("Add pages from a PDF file");
+    m_addPdfAction->setEnabled(false);
     fileMenu->addAction(m_addPdfAction);
 
     fileMenu->addSeparator();
 
-    m_importAiscAction = new QAction("Import AISC &Shapes...", this);
-    m_importAiscAction->setStatusTip("Import AISC shapes from an XLSX or CSV file");
-    fileMenu->addAction(m_importAiscAction);
+    m_importShapesAction = new QAction("Import AISC &Shapes...", this);
+    m_importShapesAction->setStatusTip("Import AISC shapes from a CSV file");
+    m_importShapesAction->setEnabled(false);
+    fileMenu->addAction(m_importShapesAction);
 
     fileMenu->addSeparator();
 
@@ -135,9 +118,9 @@ void MainWindow::createMenuBar()
 
     editMenu->addSeparator();
 
-    m_deleteAction = new QAction("&Delete Measurement", this);
+    m_deleteAction = new QAction("&Delete Item", this);
     m_deleteAction->setShortcut(QKeySequence::Delete);
-    m_deleteAction->setStatusTip("Delete the selected measurement");
+    m_deleteAction->setStatusTip("Delete the selected takeoff item");
     m_deleteAction->setEnabled(false);
     editMenu->addAction(m_deleteAction);
 
@@ -154,9 +137,8 @@ void MainWindow::createToolBar()
     m_toolBar->setMovable(false);
     addToolBar(Qt::TopToolBarArea, m_toolBar);
 
-    // Add save/open buttons to toolbar
+    // Add open button to toolbar
     m_toolBar->addAction(m_openProjectAction);
-    m_toolBar->addAction(m_saveProjectAction);
     m_toolBar->addSeparator();
 
     // Create action group for exclusive tool selection
@@ -206,16 +188,16 @@ void MainWindow::createCentralWidget()
 {
     m_mainSplitter = new QSplitter(Qt::Horizontal, this);
 
-    // Left panel: Pages + Measurements in vertical splitter
+    // Left panel: Pages + Items in vertical splitter
     m_leftSplitter = new QSplitter(Qt::Vertical, m_mainSplitter);
     
     // Pages panel
     m_pagesPanel = new PagesPanel(m_leftSplitter);
     m_leftSplitter->addWidget(m_pagesPanel);
     
-    // Measurements panel
-    m_measurementPanel = new MeasurementPanel(m_leftSplitter);
-    m_leftSplitter->addWidget(m_measurementPanel);
+    // Items panel (was Measurements panel)
+    m_itemsPanel = new MeasurementPanel(m_leftSplitter);
+    m_leftSplitter->addWidget(m_itemsPanel);
     
     // Set left splitter sizes
     m_leftSplitter->setSizes({200, 400});
@@ -248,15 +230,13 @@ void MainWindow::connectSignals()
     // File menu actions
     connect(m_newProjectAction, &QAction::triggered, this, &MainWindow::onNewProject);
     connect(m_openProjectAction, &QAction::triggered, this, &MainWindow::onOpenProject);
-    connect(m_saveProjectAction, &QAction::triggered, this, &MainWindow::onSaveProject);
-    connect(m_saveProjectAsAction, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
     connect(m_addImagePageAction, &QAction::triggered, this, &MainWindow::onAddImagePage);
     connect(m_addPdfAction, &QAction::triggered, this, &MainWindow::onAddPdf);
-    connect(m_importAiscAction, &QAction::triggered, this, &MainWindow::onImportAiscShapes);
+    connect(m_importShapesAction, &QAction::triggered, this, &MainWindow::onImportShapes);
     connect(m_exitAction, &QAction::triggered, this, &MainWindow::onExit);
 
     // Edit menu actions
-    connect(m_deleteAction, &QAction::triggered, this, &MainWindow::onDeleteMeasurement);
+    connect(m_deleteAction, &QAction::triggered, this, &MainWindow::onDeleteItem);
     connect(m_deletePageAction, &QAction::triggered, this, &MainWindow::onDeletePage);
 
     // Tool actions
@@ -281,33 +261,27 @@ void MainWindow::connectSignals()
     connect(m_pagesPanel, &PagesPanel::pageDeleteRequested,
             this, &MainWindow::onPageDeleteRequested);
 
-    // Measurement panel signals
-    connect(m_measurementPanel, &MeasurementPanel::measurementSelected,
-            this, &MainWindow::onMeasurementSelected);
+    // Items panel signals
+    connect(m_itemsPanel, &MeasurementPanel::measurementSelected,
+            this, &MainWindow::onItemSelected);
 
     // Undo stack signals
     connect(m_undoStack, &QUndoStack::cleanChanged,
             this, &MainWindow::onUndoStackCleanChanged);
 
     // Properties dock signals
-    connect(m_propertiesDock, &PropertiesDock::nameChanged,
-            this, &MainWindow::onPropertyNameChanged);
+    connect(m_propertiesDock, &PropertiesDock::designationChanged,
+            this, &MainWindow::onDesignationChanged);
+    connect(m_propertiesDock, &PropertiesDock::qtyChanged,
+            this, &MainWindow::onQtyChanged);
     connect(m_propertiesDock, &PropertiesDock::notesChanged,
-            this, &MainWindow::onPropertyNotesChanged);
-    connect(m_propertiesDock, &PropertiesDock::categoryChanged,
-            this, &MainWindow::onPropertyCategoryChanged);
-    connect(m_propertiesDock, &PropertiesDock::materialTypeChanged,
-            this, &MainWindow::onPropertyMaterialTypeChanged);
-    connect(m_propertiesDock, &PropertiesDock::sizeChanged,
-            this, &MainWindow::onPropertySizeChanged);
-    connect(m_propertiesDock, &PropertiesDock::laborClassChanged,
-            this, &MainWindow::onPropertyLaborClassChanged);
+            this, &MainWindow::onNotesChanged);
     connect(m_propertiesDock, &PropertiesDock::pickShapeRequested,
             this, &MainWindow::onPickShapeRequested);
 
     // Quote dock signals
-    connect(m_quoteDock, &QuoteDock::ratesChanged,
-            this, &MainWindow::onQuoteRatesChanged);
+    connect(m_quoteDock, &QuoteDock::materialPriceChanged,
+            this, &MainWindow::onMaterialPriceChanged);
     connect(m_quoteDock, &QuoteDock::currentPageOnlyChanged,
             this, &MainWindow::onCurrentPageOnlyChanged);
 }
@@ -331,8 +305,40 @@ void MainWindow::onNewProject()
         return;
     }
 
+    QString filePath = QFileDialog::getSaveFileName(
+        this,
+        "Create New Project",
+        QString(),
+        Project::FILE_FILTER
+    );
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    // Ensure proper extension
+    if (!filePath.endsWith(Project::FILE_EXTENSION)) {
+        filePath += Project::FILE_EXTENSION;
+    }
+
     clearProject();
-    updateStatusBar("New project created. Add an image or PDF to begin.");
+
+    if (m_project.create(filePath)) {
+        // Enable project-specific actions
+        m_addImagePageAction->setEnabled(true);
+        m_addPdfAction->setEnabled(true);
+        m_importShapesAction->setEnabled(true);
+        
+        // Load material price from project
+        m_quoteDock->setMaterialPricePerLb(m_project.materialPricePerLb());
+        
+        updateWindowTitle();
+        updateStatusBar(QString("New project created: %1. Add an image or PDF to begin.")
+                       .arg(QFileInfo(filePath).fileName()));
+    } else {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to create project: %1").arg(m_project.lastError()));
+    }
 }
 
 void MainWindow::onOpenProject()
@@ -352,47 +358,43 @@ void MainWindow::onOpenProject()
         return;
     }
 
-    if (loadProject(filePath)) {
-        updateStatusBar(QString("Project loaded: %1").arg(filePath));
-    }
-}
+    clearProject();
 
-void MainWindow::onSaveProject()
-{
-    if (m_currentProjectPath.isEmpty()) {
-        onSaveProjectAs();
-    } else {
-        saveProject(m_currentProjectPath);
-    }
-}
-
-void MainWindow::onSaveProjectAs()
-{
-    QString filePath = QFileDialog::getSaveFileName(
-        this,
-        "Save Project As",
-        QString(),
-        Project::FILE_FILTER
-    );
-
-    if (filePath.isEmpty()) {
-        return;
-    }
-
-    // Ensure proper extension
-    if (!filePath.endsWith(Project::FILE_EXTENSION)) {
-        filePath += Project::FILE_EXTENSION;
-    }
-
-    if (saveProject(filePath)) {
-        m_currentProjectPath = filePath;
+    if (m_project.open(filePath)) {
+        // Enable project-specific actions
+        m_addImagePageAction->setEnabled(true);
+        m_addPdfAction->setEnabled(true);
+        m_importShapesAction->setEnabled(true);
+        
+        // Populate pages panel
+        for (const Page& page : m_project.pages()) {
+            m_pagesPanel->addPage(page);
+        }
+        
+        // Select first page if available
+        if (!m_project.pages().isEmpty()) {
+            m_pagesPanel->selectPage(m_project.pages().first().id());
+        }
+        
+        // Load settings
+        m_quoteDock->setMaterialPricePerLb(m_project.materialPricePerLb());
+        refreshDesignationAutocomplete();
+        updateQuoteSummary();
+        
         updateWindowTitle();
-        updateStatusBar(QString("Project saved: %1").arg(filePath));
+        updateStatusBar(QString("Project loaded: %1").arg(QFileInfo(filePath).fileName()));
+    } else {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to open project: %1").arg(m_project.lastError()));
     }
 }
 
 void MainWindow::onAddImagePage()
 {
+    if (!m_project.isOpen()) {
+        return;
+    }
+
     QString filePath = QFileDialog::getOpenFileName(
         this,
         "Add Image Page",
@@ -409,8 +411,6 @@ void MainWindow::onAddImagePage()
     m_project.addPage(page);
     m_pagesPanel->addPage(page);
     
-    setDirty(true);
-    
     // Select the new page
     m_pagesPanel->selectPage(page.id());
     
@@ -419,6 +419,10 @@ void MainWindow::onAddImagePage()
 
 void MainWindow::onAddPdf()
 {
+    if (!m_project.isOpen()) {
+        return;
+    }
+
     // Check if PDF support is available
     if (!PdfRenderer::isAvailable()) {
         QMessageBox::information(this, "PDF Support Not Available",
@@ -476,7 +480,6 @@ void MainWindow::onAddPdf()
     }
 
     m_pdfRenderer.close();
-    setDirty(true);
 
     // Select the first imported page
     if (!firstPageId.isEmpty()) {
@@ -487,44 +490,35 @@ void MainWindow::onAddPdf()
     updateStatusBar(QString("Added %1 page(s) from PDF. Calibrate before measuring.").arg(count));
 }
 
-void MainWindow::onImportAiscShapes()
+void MainWindow::onImportShapes()
 {
+    if (!m_project.isOpen()) {
+        return;
+    }
+
     QString filePath = QFileDialog::getOpenFileName(
         this,
         "Import AISC Shapes",
         QString(),
-        "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*)"
+        "CSV Files (*.csv);;All Files (*)"
     );
 
     if (filePath.isEmpty()) {
         return;
     }
 
-    // Make sure database is open
-    if (!m_shapesDb.isOpen()) {
-        if (!m_shapesDb.open()) {
-            QMessageBox::critical(this, "Database Error",
-                QString("Failed to open shapes database: %1").arg(m_shapesDb.lastError()));
-            return;
-        }
-    }
-
-    int count = 0;
-    if (filePath.endsWith(".xlsx", Qt::CaseInsensitive)) {
-        count = m_shapesDb.importFromXlsx(filePath);
-    } else {
-        count = m_shapesDb.importFromCsv(filePath);
-    }
+    int count = m_project.importShapesFromCsv(filePath);
 
     if (count < 0) {
         QMessageBox::critical(this, "Import Error",
-            QString("Failed to import shapes: %1").arg(m_shapesDb.lastError()));
+            QString("Failed to import shapes: %1").arg(m_project.lastError()));
     } else if (count == 0) {
         QMessageBox::warning(this, "Import", "No shapes were imported from the file.");
     } else {
+        refreshDesignationAutocomplete();
         QMessageBox::information(this, "Import Complete",
-            QString("Successfully imported %1 shapes.\n\nTotal shapes in database: %2")
-            .arg(count).arg(m_shapesDb.shapeCount()));
+            QString("Successfully imported %1 shapes.\n\nTotal shapes in project: %2")
+            .arg(count).arg(m_project.shapeCount()));
     }
 }
 
@@ -547,27 +541,27 @@ void MainWindow::onRedo()
     m_undoStack->redo();
 }
 
-void MainWindow::onDeleteMeasurement()
+void MainWindow::onDeleteItem()
 {
-    int selectedId = m_measurementPanel->selectedMeasurementId();
+    int selectedId = m_itemsPanel->selectedMeasurementId();
     if (selectedId < 0) {
         return;
     }
 
-    // Find the measurement
-    Measurement* m = m_project.findMeasurement(selectedId);
-    if (!m) {
+    // Find the item
+    TakeoffItem* item = m_project.findTakeoffItem(selectedId);
+    if (!item) {
         return;
     }
 
-    // Create undo command
-    Measurement copy = *m;
+    // Create copy for undo
+    TakeoffItem copy = *item;
     
-    // Remove the measurement
-    removeMeasurementInternal(selectedId);
+    // Remove the item
+    removeTakeoffItemInternal(selectedId);
     
-    // Push undo command (with firstRedo = true to skip initial redo)
-    m_undoStack->push(new DeleteMeasurementCommand(this, copy));
+    // Push undo command
+    m_undoStack->push(new DeleteTakeoffItemCommand(this, copy));
 }
 
 void MainWindow::onDeletePage()
@@ -660,8 +654,8 @@ void MainWindow::onCalibrationCompleted(double pixelsPerInch)
     Page* page = m_project.findPage(m_currentPageId);
     if (page) {
         page->calibration() = m_blueprintView->calibration();
+        m_project.updatePage(*page);
     }
-    setDirty(true);
     
     updateStatusBar(QString("Calibration complete: %1 pixels/inch. Ready to measure.")
                     .arg(pixelsPerInch, 0, 'f', 2));
@@ -672,21 +666,26 @@ void MainWindow::onCalibrationCompleted(double pixelsPerInch)
 
 void MainWindow::onMeasurementCompleted(const Measurement& measurement)
 {
-    // Create a copy and set the pageId
-    Measurement m = measurement;
-    m.setPageId(m_currentPageId);
+    // Convert Measurement to TakeoffItem
+    TakeoffItem item;
+    item.setPageId(m_currentPageId);
+    item.setKind(measurement.type() == MeasurementType::Line ? 
+                 TakeoffItem::Line : TakeoffItem::Polyline);
+    item.setPoints(measurement.points());
+    item.setLengthInches(measurement.lengthInches());
+    item.setQty(1);
     
-    // Add to project and panel
-    addMeasurementInternal(m);
+    // Add to project (gets ID assigned)
+    addTakeoffItemInternal(item);
     
     // Push undo command
-    m_undoStack->push(new AddMeasurementCommand(this, m));
+    m_undoStack->push(new AddTakeoffItemCommand(this, item));
     
-    // Auto-select the new measurement and focus size field
-    m_measurementPanel->selectMeasurement(m.id());
-    m_propertiesDock->focusSizeField();
+    // Auto-select the new item and focus designation field
+    m_itemsPanel->selectMeasurement(item.id());
+    m_propertiesDock->focusDesignationField();
     
-    updateStatusBar(QString("Measurement added: %1").arg(m.displayString()));
+    updateStatusBar(QString("Item added: %1 - assign material.").arg(item.displayString()));
 }
 
 void MainWindow::onLiveMeasurementChanged(double inches)
@@ -696,27 +695,25 @@ void MainWindow::onLiveMeasurementChanged(double inches)
     }
 }
 
-void MainWindow::onMeasurementSelected(int measurementId)
+void MainWindow::onItemSelected(int itemId)
 {
-    m_selectedMeasurementId = measurementId;
-    m_blueprintView->highlightMeasurement(measurementId);
-    m_deleteAction->setEnabled(measurementId >= 0);
+    m_selectedItemId = itemId;
+    m_blueprintView->highlightMeasurement(itemId);
+    m_deleteAction->setEnabled(itemId >= 0);
     
     // Update properties panel
     updatePropertiesPanel();
     
-    if (measurementId >= 0) {
-        // Find the measurement and show details
-        const Measurement* m = m_project.findMeasurement(measurementId);
-        if (m) {
-            updateStatusBar(QString("Selected: %1").arg(m->displayString()));
+    if (itemId >= 0) {
+        const TakeoffItem* item = m_project.findTakeoffItem(itemId);
+        if (item) {
+            updateStatusBar(QString("Selected: %1").arg(item->displayString()));
         }
     }
 }
 
 void MainWindow::onToolCancelled()
 {
-    // Switch back to pan mode when Esc is pressed
     m_noneToolAction->setChecked(true);
     m_blueprintView->setTool(Tool::None);
     updateStatusBar("Tool cancelled. Pan mode.");
@@ -737,17 +734,18 @@ void MainWindow::onPageSelected(const QString& pageId)
         Page* prevPage = m_project.findPage(m_currentPageId);
         if (prevPage) {
             prevPage->calibration() = m_blueprintView->calibration();
+            m_project.updatePage(*prevPage);
         }
     }
     
     m_currentPageId = pageId;
-    m_selectedMeasurementId = -1;
+    m_selectedItemId = -1;
     
     // Load the new page
     loadCurrentPage();
     
-    // Update measurement panel for this page
-    updateMeasurementPanelForPage();
+    // Update items panel for this page
+    updateItemsPanelForPage();
     
     // Clear selection
     m_propertiesDock->clearSelection();
@@ -779,12 +777,12 @@ void MainWindow::onPageDeleteRequested(const QString& pageId)
     }
     
     // Confirm deletion
-    int measurementCount = m_project.measurementsForPage(pageId).size();
+    int itemCount = m_project.takeoffItemsForPage(pageId).size();
     QString message;
-    if (measurementCount > 0) {
-        message = QString("Delete page '%1' and its %2 measurement(s)?")
+    if (itemCount > 0) {
+        message = QString("Delete page '%1' and its %2 item(s)?")
             .arg(page->listDisplayString())
-            .arg(measurementCount);
+            .arg(itemCount);
     } else {
         message = QString("Delete page '%1'?").arg(page->listDisplayString());
     }
@@ -803,15 +801,14 @@ void MainWindow::onPageDeleteRequested(const QString& pageId)
     // Clear view if this was the current page
     if (m_currentPageId == pageId) {
         m_blueprintView->clearImage();
-        m_measurementPanel->clearMeasurements();
+        m_itemsPanel->clearMeasurements();
         m_currentPageId.clear();
         m_deletePageAction->setEnabled(false);
     }
     
-    // Remove from project (this also removes measurements)
+    // Remove from project
     m_project.removePage(pageId);
     
-    setDirty(true);
     updateQuoteSummary();
     
     // Select another page if available
@@ -826,163 +823,128 @@ void MainWindow::onPageDeleteRequested(const QString& pageId)
 
 void MainWindow::onUndoStackCleanChanged(bool clean)
 {
-    // When undo stack becomes clean, we're at the saved state
-    // When it becomes dirty (clean=false), we have unsaved changes
-    // Note: This doesn't cover all dirty cases (like calibration changes)
-    if (!clean) {
-        setDirty(true);
-    }
+    Q_UNUSED(clean);
+    // Project auto-saves with SQLite, so we don't track dirty state the same way
 }
 
 // ============================================================================
 // Properties Dock Slots
 // ============================================================================
 
-void MainWindow::onPropertyNameChanged(int id, const QString& oldVal, const QString& newVal)
+void MainWindow::onDesignationChanged(int itemId, const QString& oldVal, const QString& newVal,
+                                       int oldShapeId, int newShapeId)
 {
-    Measurement* m = m_project.findMeasurement(id);
-    if (m) {
-        m->setName(newVal);
-        m_measurementPanel->updateMeasurement(*m);
-        setDirty(true);
-        m_undoStack->push(new SetMeasurementFieldCommand(
-            this, id, MeasurementField::Name, oldVal, newVal));
-    }
+    TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    if (!item) return;
+
+    // Look up shape by designation
+    auto shape = m_project.getShapeByDesignation(newVal);
+    int resolvedShapeId = shape.id;
+    
+    item->setDesignation(newVal);
+    item->setShapeId(resolvedShapeId);
+    m_project.updateTakeoffItem(*item);
+    
+    // Update UI
+    updateItemDisplay(itemId);
+    updatePropertiesPanel();
+    updateQuoteSummary();
+    
+    // Push undo command
+    m_undoStack->push(new SetTakeoffItemFieldCommand(
+        this, itemId, TakeoffItemField::Designation, oldVal, newVal));
 }
 
-void MainWindow::onPropertyNotesChanged(int id, const QString& oldVal, const QString& newVal)
+void MainWindow::onQtyChanged(int itemId, int oldVal, int newVal)
 {
-    Measurement* m = m_project.findMeasurement(id);
-    if (m) {
-        m->setNotes(newVal);
-        setDirty(true);
-        m_undoStack->push(new SetMeasurementFieldCommand(
-            this, id, MeasurementField::Notes, oldVal, newVal));
-    }
+    TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    if (!item) return;
+
+    item->setQty(newVal);
+    m_project.updateTakeoffItem(*item);
+    
+    updateItemDisplay(itemId);
+    updatePropertiesPanel();
+    updateQuoteSummary();
+    
+    m_undoStack->push(new SetTakeoffItemFieldCommand(
+        this, itemId, TakeoffItemField::Qty, oldVal, newVal));
 }
 
-void MainWindow::onPropertyCategoryChanged(int id, Category oldVal, Category newVal)
+void MainWindow::onNotesChanged(int itemId, const QString& oldVal, const QString& newVal)
 {
-    Measurement* m = m_project.findMeasurement(id);
-    if (m) {
-        m->setCategory(newVal);
-        m_measurementPanel->updateMeasurement(*m);
-        setDirty(true);
-        updateQuoteSummary();
-        m_undoStack->push(new SetMeasurementFieldCommand(
-            this, id, MeasurementField::Category,
-            static_cast<int>(oldVal), static_cast<int>(newVal)));
-    }
+    TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    if (!item) return;
+
+    item->setNotes(newVal);
+    m_project.updateTakeoffItem(*item);
+    
+    m_undoStack->push(new SetTakeoffItemFieldCommand(
+        this, itemId, TakeoffItemField::Notes, oldVal, newVal));
 }
 
-void MainWindow::onPropertyMaterialTypeChanged(int id, MaterialType oldVal, MaterialType newVal)
+void MainWindow::onPickShapeRequested(int itemId)
 {
-    Measurement* m = m_project.findMeasurement(id);
-    if (m) {
-        m->setMaterialType(newVal);
-        m_measurementPanel->updateMeasurement(*m);
-        setDirty(true);
-        updateQuoteSummary();
-        m_undoStack->push(new SetMeasurementFieldCommand(
-            this, id, MeasurementField::MaterialType,
-            static_cast<int>(oldVal), static_cast<int>(newVal)));
-    }
-}
+    TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    if (!item) return;
 
-void MainWindow::onPropertySizeChanged(int id, const QString& oldVal, const QString& newVal)
-{
-    Measurement* m = m_project.findMeasurement(id);
-    if (m) {
-        m->setSize(newVal);
-        m_measurementPanel->updateMeasurement(*m);
-        setDirty(true);
-        updateQuoteSummary();
-        m_undoStack->push(new SetMeasurementFieldCommand(
-            this, id, MeasurementField::Size, oldVal, newVal));
-    }
-}
-
-void MainWindow::onPropertyLaborClassChanged(int id, LaborClass oldVal, LaborClass newVal)
-{
-    Measurement* m = m_project.findMeasurement(id);
-    if (m) {
-        m->setLaborClass(newVal);
-        m_measurementPanel->updateMeasurement(*m);
-        setDirty(true);
-        updateQuoteSummary();
-        m_undoStack->push(new SetMeasurementFieldCommand(
-            this, id, MeasurementField::LaborClass,
-            static_cast<int>(oldVal), static_cast<int>(newVal)));
-    }
-}
-
-void MainWindow::onPickShapeRequested(int measurementId)
-{
-    Measurement* m = m_project.findMeasurement(measurementId);
-    if (!m) {
-        return;
-    }
-
-    // Check if database has shapes
-    if (!m_shapesDb.isOpen() || !m_shapesDb.hasShapes()) {
+    // Check if shapes are imported
+    if (!m_project.hasShapes()) {
         QMessageBox::StandardButton ret = QMessageBox::question(
             this, "No Shapes Imported",
             "No AISC shapes have been imported yet.\n\n"
-            "Would you like to import shapes from an AISC spreadsheet now?",
+            "Would you like to import shapes from a CSV file now?",
             QMessageBox::Yes | QMessageBox::No);
         
         if (ret == QMessageBox::Yes) {
-            onImportAiscShapes();
+            onImportShapes();
         }
         
-        if (!m_shapesDb.hasShapes()) {
+        if (!m_project.hasShapes()) {
             return;
         }
     }
 
     // Open shape picker dialog
-    ShapePickerDialog dialog(&m_shapesDb, this);
+    ShapePickerDialog dialog(m_project.database(), this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
     int newShapeId = dialog.selectedShapeId();
-    QString newShapeLabel = dialog.selectedShapeLabel();
+    QString newDesignation = dialog.selectedShapeLabel();
     
     if (newShapeId < 0) {
         return;
     }
 
     // Store old values for undo
-    int oldShapeId = m->shapeId();
-    QString oldShapeLabel = m->shapeLabel();
-    QString oldSize = m->size();
+    QString oldDesignation = item->designation();
 
-    // Update measurement
-    m->setShapeId(newShapeId);
-    m->setShapeLabel(newShapeLabel);
-    m->setSize(newShapeLabel);  // Auto-fill size with shape label
-
-    // Update UI
-    m_measurementPanel->updateMeasurement(*m);
-    m_propertiesDock->updateFromMeasurement(m);
+    // Update item
+    item->setDesignation(newDesignation);
+    item->setShapeId(newShapeId);
+    m_project.updateTakeoffItem(*item);
     
-    setDirty(true);
+    // Update UI
+    updateItemDisplay(itemId);
+    updatePropertiesPanel();
     updateQuoteSummary();
 
-    // Push undo command for size change (shape changes are part of this)
-    m_undoStack->push(new SetMeasurementFieldCommand(
-        this, measurementId, MeasurementField::Size, oldSize, newShapeLabel));
+    m_undoStack->push(new SetTakeoffItemFieldCommand(
+        this, itemId, TakeoffItemField::Designation, oldDesignation, newDesignation));
 }
 
 // ============================================================================
 // Quote Dock Slots
 // ============================================================================
 
-void MainWindow::onQuoteRatesChanged(const QuoteRates& rates)
+void MainWindow::onMaterialPriceChanged(double pricePerLb)
 {
-    m_project.setQuoteRates(rates);
-    setDirty(true);
+    if (m_project.isOpen()) {
+        m_project.setMaterialPricePerLb(pricePerLb);
+        updatePropertiesPanel();
+    }
 }
 
 void MainWindow::onCurrentPageOnlyChanged(bool currentPageOnly)
@@ -995,88 +957,82 @@ void MainWindow::onCurrentPageOnlyChanged(bool currentPageOnly)
 // Internal Methods
 // ============================================================================
 
-void MainWindow::addMeasurementInternal(const Measurement& measurement)
+void MainWindow::addTakeoffItemInternal(TakeoffItem& item)
 {
-    m_project.addMeasurement(measurement);
+    int newId = m_project.addTakeoffItem(item);
     
     // Only add to panel if it's for the current page
-    if (measurement.pageId() == m_currentPageId) {
-        m_measurementPanel->addMeasurement(measurement);
-        m_blueprintView->addMeasurement(measurement);
+    if (item.pageId() == m_currentPageId) {
+        // Convert to Measurement for display (temporary compatibility)
+        Measurement m;
+        m.setId(newId);
+        m.setPageId(item.pageId());
+        m.setType(item.kind() == TakeoffItem::Line ? MeasurementType::Line : MeasurementType::Polyline);
+        m.setPoints(item.points());
+        m.setLengthInches(item.lengthInches());
+        m.setSize(item.designation());
+        
+        m_itemsPanel->addMeasurement(m);
+        m_blueprintView->addMeasurement(m);
     }
     
-    setDirty(true);
     updateQuoteSummary();
 }
 
-void MainWindow::removeMeasurementInternal(int measurementId)
+void MainWindow::removeTakeoffItemInternal(int itemId)
 {
-    // Check if this measurement is on the current page
-    const Measurement* m = m_project.findMeasurement(measurementId);
-    bool isCurrentPage = (m && m->pageId() == m_currentPageId);
+    const TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    bool isCurrentPage = (item && item->pageId() == m_currentPageId);
     
-    m_project.removeMeasurement(measurementId);
+    m_project.removeTakeoffItem(itemId);
     
     if (isCurrentPage) {
-        m_measurementPanel->removeMeasurement(measurementId);
-        m_blueprintView->removeMeasurement(measurementId);
+        m_itemsPanel->removeMeasurement(itemId);
+        m_blueprintView->removeMeasurement(itemId);
     }
     
     m_deleteAction->setEnabled(false);
     
-    if (m_selectedMeasurementId == measurementId) {
-        m_selectedMeasurementId = -1;
+    if (m_selectedItemId == itemId) {
+        m_selectedItemId = -1;
         m_propertiesDock->clearSelection();
     }
     
-    setDirty(true);
     updateQuoteSummary();
 }
 
-void MainWindow::setMeasurementFieldInternal(int measurementId, MeasurementField field, const QVariant& value)
+void MainWindow::setTakeoffItemFieldInternal(int itemId, TakeoffItemField field, const QVariant& value)
 {
-    Measurement* m = m_project.findMeasurement(measurementId);
-    if (!m) return;
+    TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    if (!item) return;
 
     switch (field) {
-        case MeasurementField::Name:
-            m->setName(value.toString());
-            if (m->pageId() == m_currentPageId) {
-                m_measurementPanel->updateMeasurement(*m);
-            }
+        case TakeoffItemField::Designation: {
+            QString designation = value.toString();
+            item->setDesignation(designation);
+            // Also update shape ID
+            auto shape = m_project.getShapeByDesignation(designation);
+            item->setShapeId(shape.id);
             break;
-        case MeasurementField::Notes:
-            m->setNotes(value.toString());
+        }
+        case TakeoffItemField::Qty:
+            item->setQty(value.toInt());
             break;
-        case MeasurementField::Category:
-            m->setCategory(static_cast<Category>(value.toInt()));
+        case TakeoffItemField::Notes:
+            item->setNotes(value.toString());
             break;
-        case MeasurementField::MaterialType:
-            m->setMaterialType(static_cast<MaterialType>(value.toInt()));
-            break;
-        case MeasurementField::Size:
-            m->setSize(value.toString());
-            if (m->pageId() == m_currentPageId) {
-                m_measurementPanel->updateMeasurement(*m);
-            }
-            break;
-        case MeasurementField::LaborClass:
-            m->setLaborClass(static_cast<LaborClass>(value.toInt()));
-            break;
-        case MeasurementField::ShapeId:
-            m->setShapeId(value.toInt());
-            break;
-        case MeasurementField::ShapeLabel:
-            m->setShapeLabel(value.toString());
+        case TakeoffItemField::ShapeId:
+            item->setShapeId(value.toInt());
             break;
     }
 
-    // Update properties panel if this is the selected measurement
-    if (m_selectedMeasurementId == measurementId) {
-        m_propertiesDock->updateFromMeasurement(m);
+    m_project.updateTakeoffItem(*item);
+
+    // Update properties panel if this is the selected item
+    if (m_selectedItemId == itemId) {
+        m_propertiesDock->updateFromItem(item);
     }
 
-    setDirty(true);
     updateQuoteSummary();
 }
 
@@ -1089,125 +1045,36 @@ void MainWindow::updateWindowTitle()
 {
     QString title = "Blueprint Takeoff";
     
-    if (!m_currentProjectPath.isEmpty()) {
-        QFileInfo fi(m_currentProjectPath);
+    if (m_project.isOpen()) {
+        QFileInfo fi(m_project.filePath());
         title = QString("%1 - %2").arg(fi.fileName(), title);
-    }
-    
-    if (m_dirty) {
-        title = "* " + title;
     }
     
     setWindowTitle(title);
 }
 
-void MainWindow::setDirty(bool dirty)
-{
-    if (m_dirty != dirty) {
-        m_dirty = dirty;
-        updateWindowTitle();
-    }
-}
-
 bool MainWindow::maybeSave()
 {
-    if (!m_dirty) {
-        return true;
-    }
-
-    QMessageBox::StandardButton ret = QMessageBox::warning(
-        this,
-        "Unsaved Changes",
-        "The project has been modified.\nDo you want to save your changes?",
-        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel
-    );
-
-    switch (ret) {
-        case QMessageBox::Save:
-            onSaveProject();
-            return !m_dirty;  // Returns true if save succeeded
-        case QMessageBox::Discard:
-            return true;
-        case QMessageBox::Cancel:
-        default:
-            return false;
-    }
-}
-
-bool MainWindow::saveProject(const QString& filePath)
-{
-    // Sync current page's calibration
-    if (!m_currentPageId.isEmpty()) {
-        Page* page = m_project.findPage(m_currentPageId);
-        if (page) {
-            page->calibration() = m_blueprintView->calibration();
-        }
-    }
-    
-    // Save quote rates from dock
-    m_project.setQuoteRates(m_quoteDock->currentRates());
-    
-    if (m_project.saveToJson(filePath)) {
-        m_currentProjectPath = filePath;
-        setDirty(false);
-        m_undoStack->setClean();
-        return true;
-    } else {
-        QMessageBox::critical(this, "Save Error", m_project.lastError());
-        return false;
-    }
-}
-
-bool MainWindow::loadProject(const QString& filePath)
-{
-    Project newProject;
-    if (!newProject.loadFromJson(filePath)) {
-        QMessageBox::critical(this, "Load Error", newProject.lastError());
-        return false;
-    }
-
-    // Clear current state
-    clearProject();
-    
-    // Set new project
-    m_project = newProject;
-    m_currentProjectPath = filePath;
-    
-    // Populate pages panel
-    for (const Page& page : m_project.pages()) {
-        m_pagesPanel->addPage(page);
-    }
-    
-    // Select first page if available
-    if (!m_project.pages().isEmpty()) {
-        m_pagesPanel->selectPage(m_project.pages().first().id());
-    }
-    
-    // Load quote rates
-    m_quoteDock->setRates(m_project.quoteRates());
-    updateQuoteSummary();
-    
-    setDirty(false);
-    updateWindowTitle();
-    
+    // With SQLite, changes are auto-saved, so just return true
     return true;
 }
 
 void MainWindow::clearProject()
 {
-    m_project.clear();
-    m_currentProjectPath.clear();
+    m_project.close();
     m_currentPageId.clear();
     m_undoStack->clear();
     m_pagesPanel->clearPages();
     m_blueprintView->clearImage();
-    m_measurementPanel->clearMeasurements();
+    m_itemsPanel->clearMeasurements();
     m_propertiesDock->clearSelection();
-    m_quoteDock->setRates(QuoteRates());
-    m_selectedMeasurementId = -1;
+    m_propertiesDock->setDesignationList(QStringList());
+    m_selectedItemId = -1;
     m_deleteAction->setEnabled(false);
     m_deletePageAction->setEnabled(false);
-    setDirty(false);
+    m_addImagePageAction->setEnabled(false);
+    m_addPdfAction->setEnabled(false);
+    m_importShapesAction->setEnabled(false);
     updateWindowTitle();
     updateQuoteSummary();
     
@@ -1216,41 +1083,28 @@ void MainWindow::clearProject()
     m_blueprintView->setTool(Tool::None);
 }
 
-void MainWindow::syncProjectFromView()
-{
-    // Sync current page's calibration
-    if (!m_currentPageId.isEmpty()) {
-        Page* page = m_project.findPage(m_currentPageId);
-        if (page) {
-            page->calibration() = m_blueprintView->calibration();
-        }
-    }
-}
-
-void MainWindow::syncViewFromProject()
-{
-    // This is now handled by loadCurrentPage() and updateMeasurementPanelForPage()
-}
-
 void MainWindow::updateQuoteSummary()
 {
-    bool currentPageOnly = m_quoteDock->isCurrentPageOnly();
-    
-    if (currentPageOnly && !m_currentPageId.isEmpty()) {
-        // Filter to current page
-        QVector<Measurement> pageMeasurements = m_project.measurementsForPage(m_currentPageId);
-        m_quoteDock->updateFromMeasurements(pageMeasurements, m_project.quoteRates(), &m_shapesDb);
-    } else {
-        // All measurements
-        m_quoteDock->updateFromMeasurements(m_project.measurements(), m_project.quoteRates(), &m_shapesDb);
-    }
+    m_quoteDock->updateFromProject(&m_project);
 }
 
 void MainWindow::updatePropertiesPanel()
 {
-    if (m_selectedMeasurementId >= 0) {
-        const Measurement* m = m_project.findMeasurement(m_selectedMeasurementId);
-        m_propertiesDock->setMeasurement(m, m_selectedMeasurementId);
+    if (m_selectedItemId >= 0) {
+        const TakeoffItem* item = m_project.findTakeoffItem(m_selectedItemId);
+        if (item) {
+            m_propertiesDock->setTakeoffItem(item, m_selectedItemId);
+            
+            // Update computed values
+            double wLbPerFt = 0.0;
+            if (item->shapeId() > 0) {
+                auto shape = m_project.getShape(item->shapeId());
+                wLbPerFt = shape.wLbPerFt;
+            }
+            m_propertiesDock->updateComputedValues(wLbPerFt, m_project.materialPricePerLb());
+        } else {
+            m_propertiesDock->clearSelection();
+        }
     } else {
         m_propertiesDock->clearSelection();
     }
@@ -1271,16 +1125,14 @@ void MainWindow::loadCurrentPage()
     
     bool loaded = false;
     
-    if (page->type() == PageType::Image) {
-        // Load image directly
+    if (page->type() == Page::Image) {
         loaded = m_blueprintView->loadImage(page->sourcePath());
         if (!loaded) {
             QMessageBox::warning(this, "Image Not Found",
                 QString("Could not load image: %1\nThe image file may have been moved or deleted.")
                 .arg(page->sourcePath()));
         }
-    } else if (page->type() == PageType::Pdf) {
-        // Render PDF page
+    } else if (page->type() == Page::Pdf) {
         if (!m_pdfRenderer.isOpen() || m_pdfRenderer.currentPath() != page->sourcePath()) {
             if (!m_pdfRenderer.openPdf(page->sourcePath())) {
                 QMessageBox::warning(this, "PDF Not Found",
@@ -1303,36 +1155,80 @@ void MainWindow::loadCurrentPage()
         // Restore calibration for this page
         m_blueprintView->setCalibration(page->calibration());
         
-        // Restore measurements for this page
+        // Restore items for this page (as Measurement for display)
         int maxId = 0;
-        QVector<Measurement> pageMeasurements = m_project.measurementsForPage(m_currentPageId);
-        for (const Measurement& m : pageMeasurements) {
+        QVector<TakeoffItem> pageItems = m_project.takeoffItemsForPage(m_currentPageId);
+        for (const TakeoffItem& item : pageItems) {
+            Measurement m;
+            m.setId(item.id());
+            m.setPageId(item.pageId());
+            m.setType(item.kind() == TakeoffItem::Line ? MeasurementType::Line : MeasurementType::Polyline);
+            m.setPoints(item.points());
+            m.setLengthInches(item.lengthInches());
+            m.setSize(item.designation());
+            
             m_blueprintView->addMeasurement(m);
-            if (m.id() > maxId) {
-                maxId = m.id();
+            if (item.id() > maxId) {
+                maxId = item.id();
             }
         }
         
-        // Find the max ID across all measurements (not just this page)
-        for (const Measurement& m : m_project.measurements()) {
-            if (m.id() > maxId) {
-                maxId = m.id();
+        // Find the max ID across all items
+        for (const TakeoffItem& item : m_project.takeoffItems()) {
+            if (item.id() > maxId) {
+                maxId = item.id();
             }
         }
         m_blueprintView->setNextMeasurementId(maxId + 1);
     }
 }
 
-void MainWindow::updateMeasurementPanelForPage()
+void MainWindow::updateItemsPanelForPage()
 {
-    m_measurementPanel->clearMeasurements();
+    m_itemsPanel->clearMeasurements();
     
     if (m_currentPageId.isEmpty()) {
         return;
     }
     
-    QVector<Measurement> pageMeasurements = m_project.measurementsForPage(m_currentPageId);
-    for (const Measurement& m : pageMeasurements) {
-        m_measurementPanel->addMeasurement(m);
+    QVector<TakeoffItem> pageItems = m_project.takeoffItemsForPage(m_currentPageId);
+    for (const TakeoffItem& item : pageItems) {
+        // Convert to Measurement for display
+        Measurement m;
+        m.setId(item.id());
+        m.setPageId(item.pageId());
+        m.setType(item.kind() == TakeoffItem::Line ? MeasurementType::Line : MeasurementType::Polyline);
+        m.setPoints(item.points());
+        m.setLengthInches(item.lengthInches());
+        m.setSize(item.designation());
+        
+        m_itemsPanel->addMeasurement(m);
     }
+}
+
+void MainWindow::refreshDesignationAutocomplete()
+{
+    if (m_project.isOpen()) {
+        m_propertiesDock->setDesignationList(m_project.allDesignations());
+    }
+}
+
+// Helper function for updating item display
+void MainWindow::updateItemDisplay(int itemId)
+{
+    const TakeoffItem* item = m_project.findTakeoffItem(itemId);
+    if (!item || item->pageId() != m_currentPageId) {
+        return;
+    }
+    
+    // Convert to Measurement for display
+    Measurement m;
+    m.setId(item->id());
+    m.setPageId(item->pageId());
+    m.setType(item->kind() == TakeoffItem::Line ? MeasurementType::Line : MeasurementType::Polyline);
+    m.setPoints(item->points());
+    m.setLengthInches(item->lengthInches());
+    m.setSize(item->designation());
+    
+    m_itemsPanel->updateMeasurement(m);
 }

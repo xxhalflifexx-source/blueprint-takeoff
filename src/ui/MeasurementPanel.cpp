@@ -114,6 +114,17 @@ int MeasurementPanel::selectedMeasurementId() const
     return m_itemToId.value(item, -1);
 }
 
+void MeasurementPanel::selectMeasurement(int measurementId)
+{
+    if (!m_idToItem.contains(measurementId)) {
+        return;
+    }
+    QListWidgetItem* item = m_idToItem[measurementId];
+    m_listWidget->setCurrentItem(item);
+    m_listWidget->scrollToItem(item);
+    // Selection change signal will fire automatically
+}
+
 void MeasurementPanel::onSelectionChanged()
 {
     int id = selectedMeasurementId();

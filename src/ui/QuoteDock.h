@@ -10,6 +10,7 @@
 
 #include "Project.h"
 #include "QuoteCalculator.h"
+#include "ShapesDatabase.h"
 
 /**
  * @brief Dock widget for quote summary display and export.
@@ -36,8 +37,11 @@ public:
      * @brief Update the quote summary from measurements.
      * @param measurements The measurements to calculate from
      * @param rates The quote rates to use
+     * @param shapesDb Optional shapes database for weight lookup
      */
-    void updateFromMeasurements(const QVector<Measurement>& measurements, const QuoteRates& rates);
+    void updateFromMeasurements(const QVector<Measurement>& measurements, 
+                                 const QuoteRates& rates,
+                                 ShapesDatabase* shapesDb = nullptr);
 
     /**
      * @brief Get the current quote rates from UI.
@@ -95,6 +99,7 @@ private:
     // Totals labels
     QLabel* m_subtotalLabel;
     QLabel* m_totalLabel;
+    QLabel* m_weightLabel;
 
     // Export button
     QPushButton* m_exportButton;
@@ -104,6 +109,7 @@ private:
 
     // Cached project data for recalculation
     QVector<Measurement> m_cachedMeasurements;
+    ShapesDatabase* m_shapesDb;
 };
 
 #endif // QUOTEDOCK_H

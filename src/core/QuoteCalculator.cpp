@@ -1,4 +1,5 @@
 #include "QuoteCalculator.h"
+#include "ShapesDatabase.h"
 #include <QMap>
 
 // ============================================================================
@@ -37,12 +38,18 @@ QuoteCalculator::QuoteCalculator()
 }
 
 QuoteSummary QuoteCalculator::calculate(const QVector<Measurement>& measurements,
-                                        const QuoteRates& rates) const
+                                        const QuoteRates& rates,
+                                        ShapesDatabase* shapesDb) const
 {
     QuoteSummary summary;
     
     // Group measurements by (MaterialType, Size, LaborClass)
-    QMap<QString, QuoteLineItem> groups;
+    // Also track shapeId for weight calculations
+    struct GroupData {
+        QuoteLineItem item;
+        QMap<int, double> shapeIdLengths;  // shapeId -> total length in feet for that shape
+    };
+    QMap<QString, GroupData> groups;
     
     for (const Measurement& m : measurements) {
         // Only include Line and Polyline measurements
@@ -53,26 +60,47 @@ QuoteSummary QuoteCalculator::calculate(const QVector<Measurement>& measurements
         QString key = groupKey(m.materialType(), m.size(), m.laborClass());
         
         if (!groups.contains(key)) {
-            QuoteLineItem item;
-            item.materialType = m.materialType();
-            item.size = m.size();
-            item.laborClass = m.laborClass();
-            groups[key] = item;
+            GroupData data;
+            data.item.materialType = m.materialType();
+            data.item.size = m.size();
+            data.item.laborClass = m.laborClass();
+            groups[key] = data;
         }
         
-        groups[key].totalLengthInches += m.lengthInches();
-        groups[key].itemCount++;
+        GroupData& data = groups[key];
+        data.item.totalLengthInches += m.lengthInches();
+        data.item.itemCount++;
+        
+        // Track length by shape for weight calculation
+        if (m.shapeId() >= 0) {
+            double lengthFt = m.lengthInches() / 12.0;
+            data.shapeIdLengths[m.shapeId()] += lengthFt;
+        }
     }
     
-    // Calculate costs and build line items
+    // Calculate costs, weights and build line items
     double totalMaterial = 0.0;
     double totalLabor = 0.0;
+    double totalWeight = 0.0;
     
     for (auto it = groups.begin(); it != groups.end(); ++it) {
-        QuoteLineItem& item = it.value();
+        GroupData& data = it.value();
+        QuoteLineItem& item = data.item;
         
         // Convert to feet
         item.totalLengthFeet = item.totalLengthInches / 12.0;
+        
+        // Calculate weight from shapes database
+        if (shapesDb && shapesDb->isOpen()) {
+            for (auto shapeIt = data.shapeIdLengths.begin(); 
+                 shapeIt != data.shapeIdLengths.end(); ++shapeIt) {
+                int shapeId = shapeIt.key();
+                double lengthFt = shapeIt.value();
+                double weightPerFt = shapesDb->getShapeProperty(shapeId, "W");
+                item.totalWeightLb += lengthFt * weightPerFt;
+            }
+        }
+        totalWeight += item.totalWeightLb;
         
         // Calculate costs
         item.materialCost = item.totalLengthFeet * rates.materialRatePerFt;
@@ -90,6 +118,7 @@ QuoteSummary QuoteCalculator::calculate(const QVector<Measurement>& measurements
     summary.totalLaborCost = totalLabor;
     summary.grandSubtotal = totalMaterial + totalLabor;
     summary.grandTotal = summary.grandSubtotal * (1.0 + rates.markupPercent / 100.0);
+    summary.grandTotalWeight = totalWeight;
     
     return summary;
 }

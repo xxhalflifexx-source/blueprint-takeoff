@@ -8,6 +8,7 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QWidget>
+#include <QPushButton>
 
 #include "Measurement.h"
 
@@ -43,6 +44,12 @@ public:
      */
     void updateFromMeasurement(const Measurement* measurement);
 
+    /**
+     * @brief Focus the size field and select all text.
+     * Called after a new measurement is created.
+     */
+    void focusSizeField();
+
 signals:
     // Emitted when user changes a field
     void nameChanged(int measurementId, const QString& oldValue, const QString& newValue);
@@ -51,6 +58,9 @@ signals:
     void materialTypeChanged(int measurementId, MaterialType oldValue, MaterialType newValue);
     void sizeChanged(int measurementId, const QString& oldValue, const QString& newValue);
     void laborClassChanged(int measurementId, LaborClass oldValue, LaborClass newValue);
+    
+    // Emitted when user clicks Pick AISC Shape button
+    void pickShapeRequested(int measurementId);
 
 private slots:
     void onNameEditingFinished();
@@ -59,6 +69,7 @@ private slots:
     void onMaterialTypeChanged(int index);
     void onSizeEditingFinished();
     void onLaborClassChanged(int index);
+    void onPickShapeClicked();
 
 private:
     void setupUi();
@@ -78,6 +89,7 @@ private:
     QComboBox* m_categoryCombo;
     QComboBox* m_materialTypeCombo;
     QLineEdit* m_sizeEdit;
+    QPushButton* m_pickShapeButton;
     QComboBox* m_laborClassCombo;
 
     // Info label showing measurement type and length

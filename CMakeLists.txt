@@ -9,8 +9,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Find Qt6 Widgets (required)
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# Find Qt6 Widgets and Sql (required)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)
 
 # Find Qt6 Pdf (optional)
 find_package(Qt6 COMPONENTS Pdf QUIET)
@@ -21,12 +21,45 @@ else()
     message(STATUS "Qt PDF module not found - PDF support disabled (images only)")
 endif()
 
+# QXlsx library for XLSX parsing (optional)
+# Try to include QXlsx - if it fails, XLSX import won't be available
+set(QXLSX_AVAILABLE OFF)
+if(EXISTS "${CMAKE_SOURCE_DIR}/external/qxlsx/CMakeLists.txt")
+    # Try to add QXlsx, but don't fail if it doesn't work
+    include(FetchContent)
+    FetchContent_Declare(
+        QXlsx
+        GIT_REPOSITORY https://github.com/QtExcel/QXlsx.git
+        GIT_TAG        v1.4.9
+    )
+    
+    # Check if we can build QXlsx
+    find_package(Qt6 COMPONENTS Gui QUIET)
+    if(Qt6Gui_FOUND)
+        message(STATUS "Attempting to enable QXlsx for XLSX import...")
+        FetchContent_MakeAvailable(QXlsx)
+        if(TARGET QXlsx)
+            set(QXLSX_AVAILABLE ON)
+            add_compile_definitions(HAS_QXLSX)
+            message(STATUS "QXlsx enabled - XLSX import available")
+        else()
+            message(STATUS "QXlsx target not found - XLSX import disabled (CSV only)")
+        endif()
+    else()
+        message(STATUS "Qt6Gui not found - XLSX import disabled (CSV only)")
+    endif()
+endif()
+if(NOT QXLSX_AVAILABLE)
+    message(STATUS "XLSX import not available - use CSV files for AISC shapes import")
+endif()
+
 # Source files
 set(CORE_SOURCES
     src/core/MathUtils.cpp
     src/core/CoordinateTransform.cpp
     src/core/QuoteCalculator.cpp
     src/core/PdfRenderer.cpp
+    src/core/ShapesDatabase.cpp
 )
 
 set(CORE_HEADERS
@@ -34,6 +67,7 @@ set(CORE_HEADERS
     src/core/CoordinateTransform.h
     src/core/QuoteCalculator.h
     src/core/PdfRenderer.h
+    src/core/ShapesDatabase.h
 )
 
 set(MODEL_SOURCES
@@ -59,6 +93,7 @@ set(UI_SOURCES
     src/ui/PropertiesDock.cpp
     src/ui/QuoteDock.cpp
     src/ui/PdfImportDialog.cpp
+    src/ui/ShapePickerDialog.cpp
 )
 
 set(UI_HEADERS
@@ -70,6 +105,7 @@ set(UI_HEADERS
     src/ui/PropertiesDock.h
     src/ui/QuoteDock.h
     src/ui/PdfImportDialog.h
+    src/ui/ShapePickerDialog.h
 )
 
 # Create executable
@@ -90,9 +126,17 @@ target_include_directories(BlueprintTakeoff PRIVATE
     ${CMAKE_SOURCE_DIR}/src/models
     ${CMAKE_SOURCE_DIR}/src/ui
 )
+if(QXLSX_AVAILABLE)
+    target_include_directories(BlueprintTakeoff PRIVATE
+        ${CMAKE_BINARY_DIR}/_deps/qxlsx-src/QXlsx/header
+    )
+endif()
 
-# Link Qt6 Widgets (and Pdf if available)
-target_link_libraries(BlueprintTakeoff PRIVATE Qt6::Widgets)
+# Link Qt6 Widgets, Sql (and Pdf, QXlsx if available)
+target_link_libraries(BlueprintTakeoff PRIVATE Qt6::Widgets Qt6::Sql)
+if(QXLSX_AVAILABLE)
+    target_link_libraries(BlueprintTakeoff PRIVATE QXlsx)
+endif()
 if(Qt6Pdf_FOUND)
     target_link_libraries(BlueprintTakeoff PRIVATE Qt6::Pdf)
 endif()

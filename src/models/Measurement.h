@@ -79,6 +79,10 @@ public:
     QString size() const;
     LaborClass laborClass() const;
 
+    // Accessors - AISC Shape
+    int shapeId() const;
+    QString shapeLabel() const;
+
     // Setters - Basic
     void setId(int id);
     void setPageId(const QString& pageId);
@@ -93,6 +97,10 @@ public:
     void setMaterialType(MaterialType materialType);
     void setSize(const QString& size);
     void setLaborClass(LaborClass laborClass);
+
+    // Setters - AISC Shape
+    void setShapeId(int id);
+    void setShapeLabel(const QString& label);
 
     /**
      * @brief Get a display string for the measurement.
@@ -146,6 +154,10 @@ private:
     MaterialType m_materialType;
     QString m_size;
     LaborClass m_laborClass;
+
+    // AISC Shape reference
+    int m_shapeId;
+    QString m_shapeLabel;
 };
 
 #endif // MEASUREMENT_H

@@ -11,6 +11,8 @@ Measurement::Measurement()
     , m_materialType(MaterialType::Other)
     , m_size()
     , m_laborClass(LaborClass::ShopFab)
+    , m_shapeId(-1)
+    , m_shapeLabel()
 {
 }
 
@@ -26,6 +28,8 @@ Measurement::Measurement(int id, MeasurementType type, const QVector<QPointF>& p
     , m_materialType(MaterialType::Other)
     , m_size()
     , m_laborClass(LaborClass::ShopFab)
+    , m_shapeId(-1)
+    , m_shapeLabel()
 {
 }
 
@@ -98,6 +102,20 @@ LaborClass Measurement::laborClass() const
 }
 
 // ============================================================================
+// AISC Shape Accessors
+// ============================================================================
+
+int Measurement::shapeId() const
+{
+    return m_shapeId;
+}
+
+QString Measurement::shapeLabel() const
+{
+    return m_shapeLabel;
+}
+
+// ============================================================================
 // Basic Setters
 // ============================================================================
 
@@ -158,6 +176,20 @@ void Measurement::setSize(const QString& size)
 void Measurement::setLaborClass(LaborClass laborClass)
 {
     m_laborClass = laborClass;
+}
+
+// ============================================================================
+// AISC Shape Setters
+// ============================================================================
+
+void Measurement::setShapeId(int id)
+{
+    m_shapeId = id;
+}
+
+void Measurement::setShapeLabel(const QString& label)
+{
+    m_shapeLabel = label;
 }
 
 // ============================================================================
@@ -307,6 +339,10 @@ QJsonObject Measurement::toJson() const
     json["size"] = m_size;
     json["laborClass"] = laborClassString();
 
+    // AISC Shape reference
+    json["shapeId"] = m_shapeId;
+    json["shapeLabel"] = m_shapeLabel;
+
     // Serialize points array
     QJsonArray pointsArray;
     for (const QPointF& pt : m_points) {
@@ -336,6 +372,10 @@ Measurement Measurement::fromJson(const QJsonObject& json)
     m.m_materialType = materialTypeFromString(json["materialType"].toString("Other"));
     m.m_size = json["size"].toString("");
     m.m_laborClass = laborClassFromString(json["laborClass"].toString("ShopFab"));
+
+    // AISC Shape reference with defaults for backwards compatibility
+    m.m_shapeId = json["shapeId"].toInt(-1);
+    m.m_shapeLabel = json["shapeLabel"].toString("");
 
     // Deserialize points array
     QJsonArray pointsArray = json["points"].toArray();

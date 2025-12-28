@@ -1,5 +1,6 @@
 #include "PropertiesDock.h"
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QScrollArea>
 
 PropertiesDock::PropertiesDock(QWidget* parent)
@@ -12,6 +13,7 @@ PropertiesDock::PropertiesDock(QWidget* parent)
     , m_categoryCombo(nullptr)
     , m_materialTypeCombo(nullptr)
     , m_sizeEdit(nullptr)
+    , m_pickShapeButton(nullptr)
     , m_laborClassCombo(nullptr)
     , m_infoLabel(nullptr)
     , m_currentMeasurementId(-1)
@@ -66,11 +68,24 @@ void PropertiesDock::setupUi()
     connect(m_materialTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PropertiesDock::onMaterialTypeChanged);
 
-    // Size
-    m_sizeEdit = new QLineEdit(m_container);
-    m_sizeEdit->setPlaceholderText("e.g. 2x2x11ga");
-    m_formLayout->addRow("Size:", m_sizeEdit);
+    // Size with Pick button
+    QWidget* sizeWidget = new QWidget(m_container);
+    QHBoxLayout* sizeLayout = new QHBoxLayout(sizeWidget);
+    sizeLayout->setContentsMargins(0, 0, 0, 0);
+    sizeLayout->setSpacing(4);
+    
+    m_sizeEdit = new QLineEdit(sizeWidget);
+    m_sizeEdit->setPlaceholderText("e.g. W14X90");
+    sizeLayout->addWidget(m_sizeEdit, 1);
+    
+    m_pickShapeButton = new QPushButton("Pick...", sizeWidget);
+    m_pickShapeButton->setToolTip("Pick from AISC shapes database");
+    m_pickShapeButton->setMaximumWidth(50);
+    sizeLayout->addWidget(m_pickShapeButton);
+    
+    m_formLayout->addRow("Size:", sizeWidget);
     connect(m_sizeEdit, &QLineEdit::editingFinished, this, &PropertiesDock::onSizeEditingFinished);
+    connect(m_pickShapeButton, &QPushButton::clicked, this, &PropertiesDock::onPickShapeClicked);
 
     // Labor Class
     m_laborClassCombo = new QComboBox(m_container);
@@ -120,6 +135,7 @@ void PropertiesDock::setFieldsEnabled(bool enabled)
     m_categoryCombo->setEnabled(enabled);
     m_materialTypeCombo->setEnabled(enabled);
     m_sizeEdit->setEnabled(enabled);
+    m_pickShapeButton->setEnabled(enabled);
     m_laborClassCombo->setEnabled(enabled);
     m_infoLabel->setVisible(enabled);
 }
@@ -261,6 +277,19 @@ void PropertiesDock::onLaborClassChanged(int index)
         LaborClass oldValue = m_cachedLaborClass;
         m_cachedLaborClass = newValue;
         emit laborClassChanged(m_currentMeasurementId, oldValue, newValue);
+    }
+}
+
+void PropertiesDock::focusSizeField()
+{
+    m_sizeEdit->setFocus();
+    m_sizeEdit->selectAll();
+}
+
+void PropertiesDock::onPickShapeClicked()
+{
+    if (m_currentMeasurementId >= 0) {
+        emit pickShapeRequested(m_currentMeasurementId);
     }
 }
 

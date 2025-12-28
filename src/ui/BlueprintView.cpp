@@ -454,10 +454,7 @@ void BlueprintView::finishLineMeasurement()
 
     Measurement measurement(m_nextMeasurementId++, MeasurementType::Line, m_tempPoints, inchLength);
     
-    // Create permanent graphics
-    createMeasurementGraphics(measurement);
-    
-    // Clean up temp
+    // Clean up temp drawing (MainWindow will create permanent graphics)
     clearTempDrawing();
     m_tempPoints.clear();
 
@@ -476,10 +473,7 @@ void BlueprintView::finishPolylineMeasurement()
 
     Measurement measurement(m_nextMeasurementId++, MeasurementType::Polyline, m_tempPoints, inchLength);
     
-    // Create permanent graphics
-    createMeasurementGraphics(measurement);
-    
-    // Clean up temp
+    // Clean up temp drawing (MainWindow will create permanent graphics)
     clearTempDrawing();
     m_tempPoints.clear();
 

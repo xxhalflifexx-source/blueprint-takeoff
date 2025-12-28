@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "UndoCommands.h"
 #include "PdfImportDialog.h"
+#include "ShapePickerDialog.h"
 
 #include <QMenuBar>
 #include <QMenu>
@@ -26,6 +27,7 @@ MainWindow::MainWindow(QWidget* parent)
     , m_saveProjectAsAction(nullptr)
     , m_addImagePageAction(nullptr)
     , m_addPdfAction(nullptr)
+    , m_importAiscAction(nullptr)
     , m_exitAction(nullptr)
     , m_undoAction(nullptr)
     , m_redoAction(nullptr)
@@ -43,6 +45,9 @@ MainWindow::MainWindow(QWidget* parent)
     , m_selectedMeasurementId(-1)
 {
     m_undoStack = new QUndoStack(this);
+    
+    // Open shapes database
+    m_shapesDb.open();
     
     setupUi();
     connectSignals();
@@ -103,6 +108,12 @@ void MainWindow::createMenuBar()
     m_addPdfAction = new QAction("Add P&DF...", this);
     m_addPdfAction->setStatusTip("Add pages from a PDF file");
     fileMenu->addAction(m_addPdfAction);
+
+    fileMenu->addSeparator();
+
+    m_importAiscAction = new QAction("Import AISC &Shapes...", this);
+    m_importAiscAction->setStatusTip("Import AISC shapes from an XLSX or CSV file");
+    fileMenu->addAction(m_importAiscAction);
 
     fileMenu->addSeparator();
 
@@ -241,6 +252,7 @@ void MainWindow::connectSignals()
     connect(m_saveProjectAsAction, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
     connect(m_addImagePageAction, &QAction::triggered, this, &MainWindow::onAddImagePage);
     connect(m_addPdfAction, &QAction::triggered, this, &MainWindow::onAddPdf);
+    connect(m_importAiscAction, &QAction::triggered, this, &MainWindow::onImportAiscShapes);
     connect(m_exitAction, &QAction::triggered, this, &MainWindow::onExit);
 
     // Edit menu actions
@@ -290,6 +302,8 @@ void MainWindow::connectSignals()
             this, &MainWindow::onPropertySizeChanged);
     connect(m_propertiesDock, &PropertiesDock::laborClassChanged,
             this, &MainWindow::onPropertyLaborClassChanged);
+    connect(m_propertiesDock, &PropertiesDock::pickShapeRequested,
+            this, &MainWindow::onPickShapeRequested);
 
     // Quote dock signals
     connect(m_quoteDock, &QuoteDock::ratesChanged,
@@ -473,6 +487,47 @@ void MainWindow::onAddPdf()
     updateStatusBar(QString("Added %1 page(s) from PDF. Calibrate before measuring.").arg(count));
 }
 
+void MainWindow::onImportAiscShapes()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        "Import AISC Shapes",
+        QString(),
+        "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*)"
+    );
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    // Make sure database is open
+    if (!m_shapesDb.isOpen()) {
+        if (!m_shapesDb.open()) {
+            QMessageBox::critical(this, "Database Error",
+                QString("Failed to open shapes database: %1").arg(m_shapesDb.lastError()));
+            return;
+        }
+    }
+
+    int count = 0;
+    if (filePath.endsWith(".xlsx", Qt::CaseInsensitive)) {
+        count = m_shapesDb.importFromXlsx(filePath);
+    } else {
+        count = m_shapesDb.importFromCsv(filePath);
+    }
+
+    if (count < 0) {
+        QMessageBox::critical(this, "Import Error",
+            QString("Failed to import shapes: %1").arg(m_shapesDb.lastError()));
+    } else if (count == 0) {
+        QMessageBox::warning(this, "Import", "No shapes were imported from the file.");
+    } else {
+        QMessageBox::information(this, "Import Complete",
+            QString("Successfully imported %1 shapes.\n\nTotal shapes in database: %2")
+            .arg(count).arg(m_shapesDb.shapeCount()));
+    }
+}
+
 void MainWindow::onExit()
 {
     close();
@@ -626,6 +681,10 @@ void MainWindow::onMeasurementCompleted(const Measurement& measurement)
     
     // Push undo command
     m_undoStack->push(new AddMeasurementCommand(this, m));
+    
+    // Auto-select the new measurement and focus size field
+    m_measurementPanel->selectMeasurement(m.id());
+    m_propertiesDock->focusSizeField();
     
     updateStatusBar(QString("Measurement added: %1").arg(m.displayString()));
 }
@@ -807,6 +866,7 @@ void MainWindow::onPropertyCategoryChanged(int id, Category oldVal, Category new
     Measurement* m = m_project.findMeasurement(id);
     if (m) {
         m->setCategory(newVal);
+        m_measurementPanel->updateMeasurement(*m);
         setDirty(true);
         updateQuoteSummary();
         m_undoStack->push(new SetMeasurementFieldCommand(
@@ -820,6 +880,7 @@ void MainWindow::onPropertyMaterialTypeChanged(int id, MaterialType oldVal, Mate
     Measurement* m = m_project.findMeasurement(id);
     if (m) {
         m->setMaterialType(newVal);
+        m_measurementPanel->updateMeasurement(*m);
         setDirty(true);
         updateQuoteSummary();
         m_undoStack->push(new SetMeasurementFieldCommand(
@@ -833,6 +894,7 @@ void MainWindow::onPropertySizeChanged(int id, const QString& oldVal, const QStr
     Measurement* m = m_project.findMeasurement(id);
     if (m) {
         m->setSize(newVal);
+        m_measurementPanel->updateMeasurement(*m);
         setDirty(true);
         updateQuoteSummary();
         m_undoStack->push(new SetMeasurementFieldCommand(
@@ -845,12 +907,72 @@ void MainWindow::onPropertyLaborClassChanged(int id, LaborClass oldVal, LaborCla
     Measurement* m = m_project.findMeasurement(id);
     if (m) {
         m->setLaborClass(newVal);
+        m_measurementPanel->updateMeasurement(*m);
         setDirty(true);
         updateQuoteSummary();
         m_undoStack->push(new SetMeasurementFieldCommand(
             this, id, MeasurementField::LaborClass,
             static_cast<int>(oldVal), static_cast<int>(newVal)));
     }
+}
+
+void MainWindow::onPickShapeRequested(int measurementId)
+{
+    Measurement* m = m_project.findMeasurement(measurementId);
+    if (!m) {
+        return;
+    }
+
+    // Check if database has shapes
+    if (!m_shapesDb.isOpen() || !m_shapesDb.hasShapes()) {
+        QMessageBox::StandardButton ret = QMessageBox::question(
+            this, "No Shapes Imported",
+            "No AISC shapes have been imported yet.\n\n"
+            "Would you like to import shapes from an AISC spreadsheet now?",
+            QMessageBox::Yes | QMessageBox::No);
+        
+        if (ret == QMessageBox::Yes) {
+            onImportAiscShapes();
+        }
+        
+        if (!m_shapesDb.hasShapes()) {
+            return;
+        }
+    }
+
+    // Open shape picker dialog
+    ShapePickerDialog dialog(&m_shapesDb, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    int newShapeId = dialog.selectedShapeId();
+    QString newShapeLabel = dialog.selectedShapeLabel();
+    
+    if (newShapeId < 0) {
+        return;
+    }
+
+    // Store old values for undo
+    int oldShapeId = m->shapeId();
+    QString oldShapeLabel = m->shapeLabel();
+    QString oldSize = m->size();
+
+    // Update measurement
+    m->setShapeId(newShapeId);
+    m->setShapeLabel(newShapeLabel);
+    m->setSize(newShapeLabel);  // Auto-fill size with shape label
+
+    // Update UI
+    m_measurementPanel->updateMeasurement(*m);
+    m_propertiesDock->updateFromMeasurement(m);
+    
+    setDirty(true);
+    updateQuoteSummary();
+
+    // Push undo command for size change (shape changes are part of this)
+    m_undoStack->push(new SetMeasurementFieldCommand(
+        this, measurementId, MeasurementField::Size, oldSize, newShapeLabel));
 }
 
 // ============================================================================
@@ -934,9 +1056,18 @@ void MainWindow::setMeasurementFieldInternal(int measurementId, MeasurementField
             break;
         case MeasurementField::Size:
             m->setSize(value.toString());
+            if (m->pageId() == m_currentPageId) {
+                m_measurementPanel->updateMeasurement(*m);
+            }
             break;
         case MeasurementField::LaborClass:
             m->setLaborClass(static_cast<LaborClass>(value.toInt()));
+            break;
+        case MeasurementField::ShapeId:
+            m->setShapeId(value.toInt());
+            break;
+        case MeasurementField::ShapeLabel:
+            m->setShapeLabel(value.toString());
             break;
     }
 
@@ -1108,10 +1239,10 @@ void MainWindow::updateQuoteSummary()
     if (currentPageOnly && !m_currentPageId.isEmpty()) {
         // Filter to current page
         QVector<Measurement> pageMeasurements = m_project.measurementsForPage(m_currentPageId);
-        m_quoteDock->updateFromMeasurements(pageMeasurements, m_project.quoteRates());
+        m_quoteDock->updateFromMeasurements(pageMeasurements, m_project.quoteRates(), &m_shapesDb);
     } else {
         // All measurements
-        m_quoteDock->updateFromMeasurements(m_project.measurements(), m_project.quoteRates());
+        m_quoteDock->updateFromMeasurements(m_project.measurements(), m_project.quoteRates(), &m_shapesDb);
     }
 }
 

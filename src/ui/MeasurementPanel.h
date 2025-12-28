@@ -52,6 +52,12 @@ public:
      */
     int selectedMeasurementId() const;
 
+    /**
+     * @brief Select a measurement by ID.
+     * @param measurementId The ID of the measurement to select
+     */
+    void selectMeasurement(int measurementId);
+
 signals:
     /**
      * @brief Emitted when a measurement is selected in the list.

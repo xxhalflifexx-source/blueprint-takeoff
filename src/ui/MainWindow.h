@@ -19,6 +19,7 @@
 #include "Project.h"
 #include "UndoCommands.h"
 #include "PdfRenderer.h"
+#include "ShapesDatabase.h"
 
 /**
  * @brief Main application window for the Blueprint Takeoff MVP.
@@ -51,6 +52,7 @@ private slots:
     void onSaveProjectAs();
     void onAddImagePage();
     void onAddPdf();
+    void onImportAiscShapes();
     void onExit();
     
     // Edit menu
@@ -86,6 +88,7 @@ private slots:
     void onPropertyMaterialTypeChanged(int id, MaterialType oldVal, MaterialType newVal);
     void onPropertySizeChanged(int id, const QString& oldVal, const QString& newVal);
     void onPropertyLaborClassChanged(int id, LaborClass oldVal, LaborClass newVal);
+    void onPickShapeRequested(int measurementId);
 
     // Quote dock signals
     void onQuoteRatesChanged(const QuoteRates& rates);
@@ -126,6 +129,9 @@ private:
     // PDF Renderer
     PdfRenderer m_pdfRenderer;
 
+    // AISC Shapes Database
+    ShapesDatabase m_shapesDb;
+
     // File menu actions
     QAction* m_newProjectAction;
     QAction* m_openProjectAction;
@@ -133,6 +139,7 @@ private:
     QAction* m_saveProjectAsAction;
     QAction* m_addImagePageAction;
     QAction* m_addPdfAction;
+    QAction* m_importAiscAction;
     QAction* m_exitAction;
 
     // Edit menu actions

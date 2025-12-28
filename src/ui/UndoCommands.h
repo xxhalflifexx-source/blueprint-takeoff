@@ -18,7 +18,9 @@ enum class MeasurementField
     Category,
     MaterialType,
     Size,
-    LaborClass
+    LaborClass,
+    ShapeId,
+    ShapeLabel
 };
 
 /**

@@ -20,7 +20,9 @@ QuoteDock::QuoteDock(QWidget* parent)
     , m_markupSpin(nullptr)
     , m_subtotalLabel(nullptr)
     , m_totalLabel(nullptr)
+    , m_weightLabel(nullptr)
     , m_exportButton(nullptr)
+    , m_shapesDb(nullptr)
 {
     setupUi();
 }
@@ -47,9 +49,9 @@ void QuoteDock::setupUi()
 
     // Table
     m_table = new QTableWidget(m_container);
-    m_table->setColumnCount(6);
+    m_table->setColumnCount(7);
     m_table->setHorizontalHeaderLabels({
-        "Material", "Size", "Labor", "Total (in)", "Total (ft)", "Count"
+        "Material", "Size", "Labor", "Total (in)", "Total (ft)", "Weight (lb)", "Count"
     });
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
@@ -114,6 +116,12 @@ void QuoteDock::setupUi()
     m_totalLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
     bottomLayout->addWidget(m_totalLabel);
 
+    bottomLayout->addSpacing(30);
+
+    m_weightLabel = new QLabel("Weight: 0 lb", m_container);
+    m_weightLabel->setStyleSheet("font-weight: bold;");
+    bottomLayout->addWidget(m_weightLabel);
+
     bottomLayout->addStretch();
 
     m_exportButton = new QPushButton("Export CSV...", m_container);
@@ -130,12 +138,15 @@ void QuoteDock::updateFromProject(const Project& project)
     updateFromMeasurements(project.measurements(), project.quoteRates());
 }
 
-void QuoteDock::updateFromMeasurements(const QVector<Measurement>& measurements, const QuoteRates& rates)
+void QuoteDock::updateFromMeasurements(const QVector<Measurement>& measurements, 
+                                        const QuoteRates& rates,
+                                        ShapesDatabase* shapesDb)
 {
     m_cachedMeasurements = measurements;
+    m_shapesDb = shapesDb;
     
     // Calculate summary
-    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates());
+    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates(), m_shapesDb);
     
     populateTable(summary);
     updateTotals(summary);
@@ -183,7 +194,9 @@ void QuoteDock::populateTable(const QuoteSummary& summary)
         m_table->setItem(i, 2, new QTableWidgetItem(item.laborClassString()));
         m_table->setItem(i, 3, new QTableWidgetItem(QString::number(item.totalLengthInches, 'f', 2)));
         m_table->setItem(i, 4, new QTableWidgetItem(QString::number(item.totalLengthFeet, 'f', 2)));
-        m_table->setItem(i, 5, new QTableWidgetItem(QString::number(item.itemCount)));
+        m_table->setItem(i, 5, new QTableWidgetItem(
+            item.totalWeightLb > 0 ? QString::number(item.totalWeightLb, 'f', 1) : "-"));
+        m_table->setItem(i, 6, new QTableWidgetItem(QString::number(item.itemCount)));
     }
 }
 
@@ -191,6 +204,7 @@ void QuoteDock::updateTotals(const QuoteSummary& summary)
 {
     m_subtotalLabel->setText(QString("Subtotal: $%1").arg(summary.grandSubtotal, 0, 'f', 2));
     m_totalLabel->setText(QString("Total: $%1").arg(summary.grandTotal, 0, 'f', 2));
+    m_weightLabel->setText(QString("Weight: %1 lb").arg(summary.grandTotalWeight, 0, 'f', 1));
 }
 
 void QuoteDock::onExportCsv()
@@ -221,10 +235,10 @@ void QuoteDock::onExportCsv()
     QTextStream out(&file);
 
     // Header
-    out << "Material Type,Size,Labor Class,Total (in),Total (ft),Item Count\n";
+    out << "Material Type,Size,Labor Class,Total (in),Total (ft),Weight (lb),Item Count\n";
 
     // Data rows
-    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates());
+    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates(), m_shapesDb);
     for (const QuoteLineItem& item : summary.lineItems) {
         // Escape fields that might contain commas
         QString size = item.size;
@@ -237,6 +251,7 @@ void QuoteDock::onExportCsv()
             << item.laborClassString() << ","
             << QString::number(item.totalLengthInches, 'f', 2) << ","
             << QString::number(item.totalLengthFeet, 'f', 2) << ","
+            << QString::number(item.totalWeightLb, 'f', 1) << ","
             << item.itemCount << "\n";
     }
 
@@ -248,6 +263,7 @@ void QuoteDock::onExportCsv()
     out << "\n";
     out << "Subtotal:,$" << QString::number(summary.grandSubtotal, 'f', 2) << "\n";
     out << "Total:,$" << QString::number(summary.grandTotal, 'f', 2) << "\n";
+    out << "Total Weight:," << QString::number(summary.grandTotalWeight, 'f', 1) << " lb\n";
 
     file.close();
 
@@ -258,7 +274,7 @@ void QuoteDock::onExportCsv()
 void QuoteDock::onRateChanged()
 {
     // Recalculate with new rates
-    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates());
+    QuoteSummary summary = m_calculator.calculate(m_cachedMeasurements, currentRates(), m_shapesDb);
     updateTotals(summary);
 
     emit ratesChanged(currentRates());
